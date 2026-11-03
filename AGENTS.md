@@ -48,11 +48,13 @@ chat-anon/
 ├── AGENTS.md           # этот файл
 ├── requirements.txt    # зависимости Python
 ├── docker-compose.yml  # postgres, minio, backend, frontend
+├── docker-compose_local-repo.yml  # override: сборка через Nexus (корп. сеть)
 ├── .env.example
 ├── .gitignore
 ├── .dockerignore
 ├── backend/
 │   ├── Dockerfile
+│   ├── Dockerfile_local-repo  # pip из Nexus вместо pypi.org (корп. сеть)
 │   ├── alembic.ini
 │   ├── alembic/        # миграции (env.py на async-движок)
 │   └── app/
@@ -67,6 +69,7 @@ chat-anon/
 │       └── ws/         # менеджер WebSocket-подключений
 └── frontend/
     ├── Dockerfile      # node:20-alpine, Vite dev; npm ci из registry.npmjs.org
+    ├── Dockerfile_local-repo  # npm через Nexus вместо npmjs (корп. сеть)
     ├── package.json
     ├── index.html
     ├── vite.config.ts  # прокси /api, /ws, /chatanon
@@ -88,6 +91,9 @@ chat-anon/
 1. Весь стек: `docker compose up -d --build` (первый раз; дальше `docker compose up -d`).
    Точка входа: **http://localhost:5173**; с телефона по Wi-Fi — **http://<IP-компа>:5173**
    (Vite слушает 0.0.0.0, все ссылки относительные; проверить, что файрвол пропускает порт 5173).
+   Вариант для корпоративной сети с Nexus (pip/npm из локальных репозиториев):
+   `docker compose -f docker-compose.yml -f docker-compose_local-repo.yml up -d --build`
+   (override переключает сборку на `Dockerfile_local-repo`; официальный вариант — основной).
 2. Миграции: `docker compose run --rm backend alembic upgrade head`;
    новая: `docker compose run --rm backend alembic revision --autogenerate -m "<описание>"`.
    Важно: правка моделей без применённой миграции роняет API (код ждёт колонку, которой нет в БД) — после изменения моделей миграцию создавать и применять сразу.
@@ -97,7 +103,7 @@ chat-anon/
 
 ## Особенности текущей сети/окружения (важно!)
 
-- Хост — **Linux**, обычное интернет-соединение без корпоративной TLS-инспекции; зависимости скачиваются из **официальных источников**: pip — с pypi.org, npm — с registry.npmjs.org (`npm ci` по package-lock.json), образы — с Docker Hub. Корпоративный Nexus больше не используется.
+- Хост — **Linux**, обычное интернет-соединение без корпоративной TLS-инспекции; зависимости скачиваются из **официальных источников**: pip — с pypi.org, npm — с registry.npmjs.org (`npm ci` по package-lock.json), образы — с Docker Hub. Для корпоративной сети с Nexus сохранён отдельный вариант запуска: `Dockerfile_local-repo` (backend/frontend) + `docker-compose_local-repo.yml` (см. «Сборка, запуск и тестирование»).
 - Подключение к PostgreSQL с хоста работает (порт **5433**); миграции по-прежнему удобно гонять внутри docker-сети: `docker compose run --rm backend alembic upgrade head`.
 - **MinIO не отдаёт CORS-заголовков и не отвечает на preflight** — поэтому presigned URL выдаются относительными и проксируются Vite (`/chatanon` → `minio:9000`, changeOrigin; имя бакета должно совпадать с S3_BUCKET).
 - Официальные образы `minio/*` убраны с Docker Hub — используется `bitnamilegacy/minio` (для прода — `quay.io/minio/minio`).

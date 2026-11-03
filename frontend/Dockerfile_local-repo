@@ -1,0 +1,19 @@
+# Образ фронтенда chat-anon — вариант для корпоративной сети с локальными
+# репозиториями: npm идёт через Nexus (plain HTTP), т.к. прямой доступ к
+# registry.npmjs.org ломается TLS-инспекцией (SELF_SIGNED_CERT_IN_CHAIN).
+# Официальный вариант — Dockerfile. Используется вместе с docker-compose_local-repo.yml:
+#   docker compose -f docker-compose.yml -f docker-compose_local-repo.yml up -d --build
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm config set registry http://nexus.rw.org/repository/npm/ --global
+# npm install (а не ci): Nexus проксирует npmjs, lock-файл подтянется через него
+RUN npm install
+
+COPY . .
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

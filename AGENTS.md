@@ -26,7 +26,7 @@
 - **Бэкенд:** FastAPI (async) + Uvicorn. **ORM/миграции:** SQLAlchemy 2.0 + asyncpg + Alembic. **Конфигурация:** pydantic-settings (.env, шаблон `.env.example`).
 - **Файлы (S3/MinIO):**
   - `POST /api/uploads/presign` — создаёт `Attachment` (message_id NULL) и возвращает presigned PUT URL (15 мин); бэкенд файлы не проксирует;
-  - presigned URL подписываются на внутреннем endpoint (`minio:9000`), а в выдачу подставляется `S3_PROXY_BASE_URL` (http://localhost:5173) — Vite проксирует `/chatanon/*` на MinIO (`changeOrigin` ставит Host minio:9000, подпись s3v4 валидна); браузер работает с одним origin, CORS отсутствует;
+  - presigned URL подписываются на внутреннем endpoint (`minio:9000`), а в выдачу отдаются **относительными** (`/chatanon/<key>?X-Amz-...`, режим включается любым непустым `S3_PROXY_BASE_URL`) — браузер резолвит их от origin открытой страницы, Vite проксирует `/chatanon/*` на MinIO (`changeOrigin` ставит Host minio:9000, подпись s3v4 валидна). Медиа работают с любого устройства, открывшего страницу (localhost, телефон по Wi-Fi), CORS отсутствует. Важно: ходить нужно через origin фронтенда (5173) — при прямом запросе к бэкенду (8000) относительный редирект `/chatanon/*` упрётся в сам бэкенд и даст 404;
   - `GET /api/attachments/{id}/file` — 307 на presigned GET (12 ч); `?download=true` — Content-Disposition: attachment (filename* для не-ASCII имён);
   - валидация: MIME image|audio|video, расширение из белого списка, размер ≤ 100 МБ (иначе 415/422).
 - **БД:** PostgreSQL 17. Таблицы: `participants`, `messages` (есть `edited_at`), `attachments` (message_id nullable), `reactions`. Счётчики лайков — column_property.
@@ -66,7 +66,7 @@ chat-anon/
 │       ├── storage/    # s3.py: presign upload/download, ensure_bucket, delete_object
 │       └── ws/         # менеджер WebSocket-подключений
 └── frontend/
-    ├── Dockerfile      # node:20-alpine, Vite dev; npm через корп. Nexus
+    ├── Dockerfile      # node:20-alpine, Vite dev; npm ci из registry.npmjs.org
     ├── package.json
     ├── index.html
     ├── vite.config.ts  # прокси /api, /ws, /chatanon
@@ -83,25 +83,24 @@ chat-anon/
 
 ## Сборка, запуск и тестирование
 
-Окружение (PowerShell): `.\env\Scripts\Activate.ps1`; в Git Bash: `source env/Scripts/activate`.
+Хост — Linux; виртуальное окружение Python на хосте не требуется, весь стек в Docker.
 
 1. Весь стек: `docker compose up -d --build` (первый раз; дальше `docker compose up -d`).
-   Точка входа: **http://localhost:5173**.
+   Точка входа: **http://localhost:5173**; с телефона по Wi-Fi — **http://<IP-компа>:5173**
+   (Vite слушает 0.0.0.0, все ссылки относительные; проверить, что файрвол пропускает порт 5173).
 2. Миграции: `docker compose run --rm backend alembic upgrade head`;
    новая: `docker compose run --rm backend alembic revision --autogenerate -m "<описание>"`.
    Важно: правка моделей без применённой миграции роняет API (код ждёт колонку, которой нет в БД) — после изменения моделей миграцию создавать и применять сразу.
 3. Код бэкенда меняется без пересборки (volume): `docker compose restart backend`. Фронтенд — hot reload, но после массовых правок надёжнее `docker compose restart frontend` (сброс кэша модулей Vite).
 4. Typecheck фронта (с хоста): `cd frontend && npx tsc --noEmit`.
-5. Тестов нет; проверка — smoke-сценарии. Важно: **MinIO-ноги (PUT/GET к 9000) проверять синхронным httpx или curl** — асинхронный httpx к порту 9000 на этой машине зависает (проявление связки proactor/asyncio с ретранслятором Docker Desktop; браузер и curl не затронуты).
+5. Тестов нет; проверка — smoke-сценарии. MinIO-ноги (PUT/GET к 9000) на текущем Linux-хосте работают и через асинхронный httpx, и через curl (старое зависание async httpx было спецификой Windows-связки proactor/asyncio + Docker Desktop).
 
 ## Особенности текущей сети/окружения (важно!)
 
-- **Корпоративный перехватчик сбрасывает подключения к PostgreSQL с хоста** — миграции и бэкенд работают внутри docker-сети (`postgres:5432`). HTTP/WS через опубликованные порты проходят.
-- Порт **5432 занят системным PostgreSQL** (служба Windows) — контейнер проекта на **5433**.
-- **MinIO (bitnamilegacy) не отдаёт CORS-заголовков и не отвечает на preflight** — поэтому presigned-URL выдаются с host Vite и проксируются (`/chatanon` → `minio:9000`, changeOrigin; имя бакета должно совпадать с S3_BUCKET).
-- **npm в контейнерах — через корпоративный Nexus** `http://nexus.rw.org/repository/npm/` (plain HTTP): прямой registry.npmjs.org ломается TLS-инспекцией (SELF_SIGNED_CERT_IN_CHAIN). pip хоста — аналогично (nexus.rw.org/repository/python).
-- Официальные образы `minio/*` убраны с Docker Hub, quay.io недоступен — используется `bitnamilegacy/minio` (для прода — `quay.io/minio/minio`).
-- Сеть до Docker Hub нестабильна — большие pull-ы обрываются, повторяйте `docker compose build`.
+- Хост — **Linux**, обычное интернет-соединение без корпоративной TLS-инспекции; зависимости скачиваются из **официальных источников**: pip — с pypi.org, npm — с registry.npmjs.org (`npm ci` по package-lock.json), образы — с Docker Hub. Корпоративный Nexus больше не используется.
+- Подключение к PostgreSQL с хоста работает (порт **5433**); миграции по-прежнему удобно гонять внутри docker-сети: `docker compose run --rm backend alembic upgrade head`.
+- **MinIO не отдаёт CORS-заголовков и не отвечает на preflight** — поэтому presigned URL выдаются относительными и проксируются Vite (`/chatanon` → `minio:9000`, changeOrigin; имя бакета должно совпадать с S3_BUCKET).
+- Официальные образы `minio/*` убраны с Docker Hub — используется `bitnamilegacy/minio` (для прода — `quay.io/minio/minio`).
 - Периодические перезагрузки страницы чата — следить за консолью браузера (F12); на данный момент устранены пульсами WebSocket (см. `main.tsx` и `ws.ts`).
 
 ## Язык и соглашения

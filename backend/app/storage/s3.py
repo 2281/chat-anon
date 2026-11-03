@@ -64,7 +64,9 @@ async def presign_download(key: str, file_name: str, as_attachment: bool) -> str
 
 async def _presign(method: str, key: str, expires: int, params: dict[str, Any] | None = None) -> str:
     # при проксировании подписываем на внутреннем endpoint (именно его увидит MinIO
-    # от прокси), а в выдаваемый URL подставляем публичный адрес прокси
+    # от прокси — changeOrigin в Vite/nginx подменяет Host), а в выдачу отдаём
+    # ОТНОСИТЕЛЬНЫЙ URL (путь + query): браузер резолвит его от origin открытой
+    # страницы, поэтому ссылки работают и с localhost, и с телефона по Wi-Fi
     sign_endpoint = (
         settings.s3_internal_endpoint_url if settings.s3_proxy_base_url else settings.s3_endpoint_url
     )
@@ -77,10 +79,5 @@ async def _presign(method: str, key: str, expires: int, params: dict[str, Any] |
             url = await url
     if settings.s3_proxy_base_url:
         parts = urlsplit(url)
-        proxy = urlsplit(
-            settings.s3_proxy_base_url
-            if "://" in settings.s3_proxy_base_url
-            else f"http://{settings.s3_proxy_base_url}"
-        )
-        return urlunsplit((proxy.scheme, proxy.netloc, parts.path, parts.query, ""))
+        return urlunsplit(("", "", parts.path, parts.query, ""))
     return url

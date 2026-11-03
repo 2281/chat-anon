@@ -1,0 +1,103 @@
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_participant, get_current_participant_optional, get_db
+from app.models import Participant
+from app.schemas.messages import MessageCreate, MessageOut, MessagePage, MessageUpdate, ReactionSet
+from app.services import messages as message_service
+from app.storage.s3 import delete_object
+from app.ws.manager import manager
+
+router = APIRouter(prefix="/api/messages", tags=["messages"])
+
+
+async def _broadcast_reaction_update(message: MessageOut) -> None:
+    await manager.broadcast(
+        "message.reaction",
+        {"message_id": message.id, "likes": message.likes, "dislikes": message.dislikes},
+    )
+
+
+@router.post("", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
+async def create_message(
+    data: MessageCreate,
+    db: AsyncSession = Depends(get_db),
+    participant: Participant = Depends(get_current_participant),
+) -> MessageOut:
+    message = await message_service.create_message(db, participant, data)
+    payload = MessageOut.model_validate(message)
+    await manager.broadcast("message.new", payload.model_dump(mode="json"))
+    return payload
+
+
+@router.get("", response_model=MessagePage)
+async def list_messages(
+    db: AsyncSession = Depends(get_db),
+    participant: Participant | None = Depends(get_current_participant_optional),
+    before_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> MessagePage:
+    messages, next_cursor = await message_service.list_messages(db, before_id, limit)
+    if participant is not None:
+        await message_service.attach_my_reactions(db, messages, participant.token)
+    return MessagePage(items=[MessageOut.model_validate(m) for m in messages], next_cursor=next_cursor)
+
+
+@router.patch("/{message_id}", response_model=MessageOut)
+async def update_message(
+    message_id: int,
+    data: MessageUpdate,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    participant: Participant = Depends(get_current_participant),
+) -> MessageOut:
+    """Редактирование своего сообщения: текст и полный желаемый набор вложений."""
+    message, removed_keys = await message_service.update_message(db, participant, message_id, data)
+    payload = MessageOut.model_validate(message)
+    await manager.broadcast("message.updated", payload.model_dump(mode="json"))
+    # файлы отсоединённых вложений убираем после ответа клиенту
+    for key in removed_keys:
+        background.add_task(delete_object, key)
+    return payload
+
+
+@router.delete("/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_message(
+    message_id: int,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    participant: Participant = Depends(get_current_participant),
+) -> Response:
+    """Удаление своего сообщения (только автор). Событие message.deleted уходит всем клиентам."""
+    keys = await message_service.delete_message(db, participant, message_id)
+    await manager.broadcast("message.deleted", {"message_id": message_id})
+    # файлы из хранилища убираем после ответа клиенту
+    for key in keys:
+        background.add_task(delete_object, key)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{message_id}/reactions", response_model=MessageOut)
+async def set_reaction(
+    message_id: int,
+    data: ReactionSet,
+    db: AsyncSession = Depends(get_db),
+    participant: Participant = Depends(get_current_participant),
+) -> MessageOut:
+    message = await message_service.set_reaction(db, participant, message_id, data.kind)
+    setattr(message, "my_reaction", data.kind)
+    payload = MessageOut.model_validate(message)
+    await _broadcast_reaction_update(payload)
+    return payload
+
+
+@router.delete("/{message_id}/reactions/me", response_model=MessageOut)
+async def remove_reaction(
+    message_id: int,
+    db: AsyncSession = Depends(get_db),
+    participant: Participant = Depends(get_current_participant),
+) -> MessageOut:
+    message = await message_service.remove_reaction(db, participant, message_id)
+    payload = MessageOut.model_validate(message)
+    await _broadcast_reaction_update(payload)
+    return payload

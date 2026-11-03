@@ -1,0 +1,625 @@
+/* chat-anon — пиксель-арт стили */
+:root {
+  --bg: #14141f;
+  --bg-grid: #191926;
+  --panel: #1e1e2e;
+  --panel-2: #26263a;
+  --border: #3f3f5c;
+  --text: #e8e8f0;
+  --muted: #8f8fb0;
+  --accent: #ffd866;
+  --accent-dark: #b99a35;
+  --like: #7ddf7d;
+  --dislike: #ff7b7b;
+  --shadow: #090910;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--bg-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--text);
+  font-family: 'VT323', monospace;
+  font-size: 21px;
+  line-height: 1.35;
+}
+
+/* ---------- кнопки и поля в пиксельном стиле ---------- */
+
+.px-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 3px solid var(--border);
+  box-shadow: 0 4px 0 var(--shadow);
+  padding: 8px 10px;
+  cursor: pointer;
+  image-rendering: pixelated;
+  user-select: none;
+}
+
+.px-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.px-btn:active {
+  transform: translateY(4px);
+  box-shadow: none;
+}
+
+.px-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.px-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent-dark);
+  color: #1a1a10;
+}
+
+.px-btn.primary:hover {
+  color: #000;
+  border-color: #fff;
+}
+
+.px-btn.big {
+  font-size: 12px;
+  padding: 14px 18px;
+}
+
+.px-btn.icon {
+  font-family: 'VT323', monospace;
+  font-size: 24px;
+  padding: 2px 12px;
+}
+
+.px-btn.active {
+  border-color: var(--accent);
+}
+
+.px-btn.reaction.liked {
+  border-color: var(--like);
+  color: var(--like);
+}
+
+.px-btn.reaction.disliked {
+  border-color: var(--dislike);
+  color: var(--dislike);
+}
+
+.pixel-input {
+  font-family: 'VT323', monospace;
+  font-size: 22px;
+  color: var(--text);
+  background: var(--bg);
+  border: 3px solid var(--border);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.pixel-input:focus {
+  border-color: var(--accent);
+}
+
+.pixel-input.small {
+  font-size: 18px;
+  padding: 4px 8px;
+  width: 160px;
+}
+
+/* ---------- стартовый экран ---------- */
+
+.start-screen {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.start-panel {
+  background: var(--panel);
+  border: 4px solid var(--border);
+  box-shadow: 8px 8px 0 var(--shadow);
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(420px, 90vw);
+  text-align: center;
+}
+
+.logo {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 22px;
+  color: var(--accent);
+  margin: 0;
+  text-shadow: 3px 3px 0 var(--shadow);
+}
+
+.start-hint {
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.error-text {
+  color: var(--dislike);
+  margin: 0;
+}
+
+.boot {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+/* ---------- каркас чата ---------- */
+
+.app {
+  height: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 12px;
+}
+
+.chat-header {
+  background: var(--panel);
+  border: 4px solid var(--border);
+  box-shadow: 6px 6px 0 var(--shadow);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.chat-header .logo {
+  font-size: 14px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.conn {
+  font-size: 18px;
+}
+
+.conn.ok {
+  color: var(--like);
+}
+
+.conn.bad {
+  color: var(--dislike);
+}
+
+/* ---------- лента сообщений ---------- */
+
+.message-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 4px 12px;
+}
+
+.load-older {
+  align-self: center;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+  margin-top: 40px;
+}
+
+.message {
+  background: var(--panel);
+  border: 3px solid var(--border);
+  box-shadow: 5px 5px 0 var(--shadow);
+  padding: 8px 12px;
+}
+
+.message.own {
+  border-color: var(--accent-dark);
+  background: var(--panel-2);
+}
+
+.message-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.nickname {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  color: var(--accent);
+}
+
+.message.own .nickname {
+  color: var(--like);
+}
+
+.you-tag {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--muted);
+  border: 2px solid var(--border);
+  padding: 2px 4px;
+}
+
+.time {
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.quote {
+  margin: 4px 0;
+  padding: 4px 10px;
+  border-left: 4px solid var(--accent-dark);
+  background: var(--bg);
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reply-ref {
+  color: var(--muted);
+  margin: 2px 0 4px;
+}
+
+.message-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.message-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.message-actions .px-btn {
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  padding: 2px 10px;
+  box-shadow: 0 3px 0 var(--shadow);
+}
+
+/* ---------- композер ---------- */
+
+.composer {
+  background: var(--panel);
+  border: 4px solid var(--border);
+  box-shadow: 6px 6px 0 var(--shadow);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composer-context {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  background: var(--bg);
+  border: 2px solid var(--accent-dark);
+  color: var(--muted);
+  padding: 2px 8px;
+  font-size: 18px;
+}
+
+.chip button {
+  background: none;
+  border: none;
+  color: var(--dislike);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 18px;
+  margin-left: 6px;
+}
+
+.emoji-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.emoji-row button {
+  background: var(--bg);
+  border: 2px solid var(--border);
+  font-size: 20px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.emoji-row button:hover {
+  border-color: var(--accent);
+}
+
+.composer-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.composer-row textarea {
+  flex: 1;
+  font-family: 'VT323', monospace;
+  font-size: 21px;
+  color: var(--text);
+  background: var(--bg);
+  border: 3px solid var(--border);
+  padding: 8px 10px;
+  resize: none;
+  outline: none;
+}
+
+.composer-row textarea:focus {
+  border-color: var(--accent);
+}
+
+/* ---------- скроллбар ---------- */
+
+.message-list::-webkit-scrollbar {
+  width: 14px;
+}
+
+.message-list::-webkit-scrollbar-track {
+  background: var(--panel);
+  border: 3px solid var(--border);
+}
+
+.message-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 3px solid var(--panel);
+}
+
+.message-list::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-dark);
+}
+
+/* ---------- вложения ---------- */
+
+.attachment {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.attachment-image {
+  max-width: 240px;
+  max-height: 240px;
+  border: 3px solid var(--border);
+  box-shadow: 4px 4px 0 var(--shadow);
+  cursor: zoom-in;
+  image-rendering: auto; /* фото показываем плавно, без пикселизации */
+  object-fit: cover;
+}
+
+.attachment-image:hover {
+  border-color: var(--accent);
+}
+
+.attachment-video {
+  max-width: 340px;
+  max-height: 260px;
+  border: 3px solid var(--border);
+  box-shadow: 4px 4px 0 var(--shadow);
+  background: #000;
+}
+
+.attachment audio {
+  width: 300px;
+  max-width: 100%;
+  height: 36px;
+}
+
+.attachment-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 340px;
+}
+
+.attachment-name {
+  color: var(--muted);
+  font-size: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.px-btn.mini {
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  padding: 1px 8px;
+  box-shadow: 0 2px 0 var(--shadow);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.px-btn.mini:active {
+  transform: translateY(2px);
+}
+
+/* ---------- черновики вложений в композере ---------- */
+
+.drafts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.draft {
+  position: relative;
+  border: 3px solid var(--border);
+  background: var(--bg);
+  min-width: 76px;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.draft img {
+  width: 76px;
+  height: 56px;
+  object-fit: cover;
+  image-rendering: auto;
+}
+
+.draft-icon {
+  font-size: 16px;
+  color: var(--muted);
+  padding: 4px 6px;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draft-status {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  font-size: 14px;
+  text-align: center;
+  background: rgba(9, 9, 16, 0.75);
+  color: var(--muted);
+}
+
+.draft.error .draft-status {
+  color: var(--dislike);
+}
+
+.draft-remove {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  background: var(--dislike);
+  color: #1a0505;
+  border: 2px solid var(--shadow);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+/* ---------- модальный просмотр фото ---------- */
+
+.image-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(9, 9, 16, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: zoom-out;
+  padding: 20px;
+}
+
+.image-modal img {
+  max-width: 94vw;
+  max-height: 84vh;
+  border: 4px solid var(--border);
+  image-rendering: auto;
+  box-shadow: 10px 10px 0 var(--shadow);
+}
+
+.modal-bar {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.modal-bar a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* ---------- удаление сообщений ---------- */
+
+.px-btn.danger {
+  border-color: var(--dislike);
+  color: var(--dislike);
+}
+
+.px-btn.danger:hover {
+  background: var(--dislike);
+  color: #1a0505;
+  border-color: #ff9b9b;
+}
+
+/* ---------- редактор сообщения ---------- */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.editor textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.edited-tag {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--muted);
+  border: 2px solid var(--border);
+  padding: 2px 4px;
+}
+
+.draft.kept {
+  border-color: var(--accent-dark);
+}

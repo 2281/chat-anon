@@ -1,0 +1,20 @@
+# Образ бэкенда chat-anon — вариант для корпоративной сети с локальными
+# репозиториями: зависимости ставятся из Nexus (plain HTTP), а не с pypi.org.
+# Официальный вариант — Dockerfile. Используется вместе с docker-compose_local-repo.yml:
+#   docker compose -f docker-compose.yml -f docker-compose_local-repo.yml up -d --build
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# сначала только зависимости — слой кэшируется при неизменном requirements.txt
+COPY requirements.txt .
+# Nexus — plain HTTP, поэтому --trusted-host; /simple — PyPI-индекс внутри репозитория
+RUN pip install --no-cache-dir \
+      --index-url http://nexus.rw.org/repository/python/simple \
+      --trusted-host nexus.rw.org \
+      -r requirements.txt
+
+# код бэкенда (контекст сборки — корень репозитория)
+COPY backend/ .
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

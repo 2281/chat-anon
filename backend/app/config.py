@@ -17,8 +17,10 @@ class Settings(BaseSettings):
     s3_endpoint_url: str = "http://localhost:9000"
     # endpoint для серверных вызовов (внутри docker-сети); для хоста совпадает с s3_endpoint_url
     s3_internal_endpoint_url: str = "http://localhost:9000"
-    # если задан, host в presigned URL заменяется на этот адрес (dev: Vite проксирует
-    # пути бакета на MinIO, браузер работает только с одним origin — без CORS)
+    # режим прокси: если задан (любое непустое значение), presigned URL выдаются
+    # ОТНОСИТЕЛЬНЫМИ (путь бакета + подпись) — браузер ходит на origin открытой
+    # страницы, а dev-сервер/proxy проксирует пути бакета на MinIO (без CORS);
+    # относительные ссылки работают с любого устройства (localhost, телефон по Wi-Fi)
     s3_proxy_base_url: str = ""
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"

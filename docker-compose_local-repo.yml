@@ -1,0 +1,25 @@
+# Переопределения для сборки в корпоративной сети с локальными репозиториями (Nexus).
+# Накладывается поверх основного файла:
+#   docker compose -f docker-compose.yml -f docker-compose_local-repo.yml up -d --build
+# Миграции там же, внутри docker-сети:
+#   docker compose -f docker-compose.yml -f docker-compose_local-repo.yml \
+#     run --rm backend alembic upgrade head
+#
+# Особенности того окружения (по заметкам из AGENTS.md старой машины):
+# - прямой доступ к pypi.org / registry.npmjs.org ломается корпоративной
+#   TLS-инспекцией (SELF_SIGNED_CERT_IN_CHAIN) — отсюда Nexus;
+# - подключения к PostgreSQL с хоста сбрасываются перехватчиком трафика —
+#   миграции и бэкенд работают только внутри docker-сети;
+# - на хосте порт 5432 занят системным PostgreSQL — контейнер на 5433 (как в основном файле);
+# - сеть до Docker Hub нестабильна — большие pull-ы обрываются, повторять build;
+#   postgres:17 и bitnamilegacy/minio при необходимости тянуть через registry-mirror.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile_local-repo
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile_local-repo

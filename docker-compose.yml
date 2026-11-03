@@ -1,10 +1,10 @@
 # Локальная инфраструктура разработки: PostgreSQL и S3-совместимое хранилище MinIO.
 # Учётные данные ниже — только для локальной разработки, продакшн-значения задаются через .env.
 #
-# Про образ MinIO: официальные образы minio/* убраны с Docker Hub, а quay.io из данной сети
-# недоступен, поэтому используем снимок bitnamilegacy/minio (образ Bitnami, прекращённый
-# вместе с остальными bitnami/* на Docker Hub). Для локальной разработки достаточно;
-# для продакшена следует использовать официальный quay.io/minio/minio.
+# Про образ MinIO: официальные образы minio/* убраны с Docker Hub, поэтому используем
+# снимок bitnamilegacy/minio (образ Bitnami, прекращённый вместе с остальными bitnami/*
+# на Docker Hub). Для локальной разработки достаточно; для продакшена следует
+# использовать официальный quay.io/minio/minio.
 services:
   postgres:
     image: postgres:17
@@ -14,7 +14,7 @@ services:
       POSTGRES_PASSWORD: chat
       POSTGRES_DB: chatanon
     ports:
-      # 5432 на хосте занят системным PostgreSQL (служба Windows) — используем 5433
+      # используем 5433, чтобы не пересекаться с возможным локальным PostgreSQL на 5432
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -45,14 +45,13 @@ services:
     image: chat-anon-backend:latest
     container_name: chat-anon-backend
     environment:
-      # Внутри docker-сети БД доступна по имени сервиса. На хосте 5432 занят
-      # системным PostgreSQL, а подключения к postgres с хоста сбрасываются
-      # корпоративным перехватчиком трафика — см. AGENTS.md, раздел «Особенности окружения».
+      # Внутри docker-сети БД доступна по имени сервиса postgres (порт 5432 внутри сети).
       DATABASE_URL: postgresql+asyncpg://chat:chat@postgres:5432/chatanon
       S3_INTERNAL_ENDPOINT_URL: http://minio:9000
-      # presigned URL отдаются с host фронтенда: Vite проксирует /chatanon/* на MinIO,
-      # браузер ходит только на localhost:5173 (CORS отсутствует, preflight не нужен)
-      S3_PROXY_BASE_URL: http://localhost:5173
+      # режим прокси (важна не пустота значения, а его наличие): presigned URL
+      # отдаются относительными, Vite проксирует /chatanon/* на MinIO — медиа
+      # доступны и с localhost, и с других устройств в сети (CORS не нужен)
+      S3_PROXY_BASE_URL: proxy
     ports:
       - "8000:8000"
     volumes:

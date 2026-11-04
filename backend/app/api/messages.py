@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_participant, get_current_participant_optional, get_db
 from app.models import Participant
 from app.schemas.messages import MessageCreate, MessageOut, MessagePage, MessageUpdate, ReactionSet
+from app.services import conversations as conversation_service
 from app.services import messages as message_service
 from app.services import notifications as notification_service
 from app.storage.s3 import delete_object
@@ -12,11 +13,17 @@ from app.ws.manager import manager
 router = APIRouter(prefix="/api/messages", tags=["messages"])
 
 
-async def _broadcast_reaction_update(message: MessageOut) -> None:
-    await manager.broadcast(
-        "message.reaction",
-        {"message_id": message.id, "likes": message.likes, "dislikes": message.dislikes},
-    )
+async def _broadcast_reaction_update(
+    db: AsyncSession, message: MessageOut, conversation_id: int | None
+) -> None:
+    data = {"message_id": message.id, "likes": message.likes, "dislikes": message.dislikes}
+    if conversation_id is not None:
+        # реакции в личке — только участникам диалога
+        data["conversation_id"] = conversation_id
+        tokens = await conversation_service.member_tokens(db, conversation_id)
+        await manager.send_to_tokens(tokens, "dm.reaction", data)
+    else:
+        await manager.broadcast("message.reaction", data)
 
 
 @router.post("", response_model=MessageOut, status_code=status.HTTP_201_CREATED)
@@ -64,7 +71,14 @@ async def update_message(
     """Редактирование своего сообщения: текст и полный желаемый набор вложений."""
     message, removed_keys = await message_service.update_message(db, participant, message_id, data)
     payload = MessageOut.model_validate(message)
-    await manager.broadcast("message.updated", payload.model_dump(mode="json"))
+    event_data = payload.model_dump(mode="json")
+    if message.conversation_id is not None:
+        # события лички не уходят в общий broadcast
+        event_data["conversation_id"] = message.conversation_id
+        tokens = await conversation_service.member_tokens(db, message.conversation_id)
+        await manager.send_to_tokens(tokens, "dm.updated", event_data)
+    else:
+        await manager.broadcast("message.updated", event_data)
     # файлы отсоединённых вложений убираем после ответа клиенту
     for key in removed_keys:
         background.add_task(delete_object, key)
@@ -78,9 +92,16 @@ async def delete_message(
     db: AsyncSession = Depends(get_db),
     participant: Participant = Depends(get_current_participant),
 ) -> Response:
-    """Удаление своего сообщения (только автор). Событие message.deleted уходит всем клиентам."""
-    keys = await message_service.delete_message(db, participant, message_id)
-    await manager.broadcast("message.deleted", {"message_id": message_id})
+    """Удаление своего сообщения (только автор). В общем чате событие уходит всем,
+    в личке — только участникам диалога."""
+    keys, conversation_id = await message_service.delete_message(db, participant, message_id)
+    if conversation_id is not None:
+        tokens = await conversation_service.member_tokens(db, conversation_id)
+        await manager.send_to_tokens(
+            tokens, "dm.deleted", {"conversation_id": conversation_id, "message_id": message_id}
+        )
+    else:
+        await manager.broadcast("message.deleted", {"message_id": message_id})
     # файлы из хранилища убираем после ответа клиенту
     for key in keys:
         background.add_task(delete_object, key)
@@ -98,8 +119,9 @@ async def set_reaction(
     message = await message_service.set_reaction(db, participant, message_id, data.kind)
     setattr(message, "my_reaction", data.kind)
     payload = MessageOut.model_validate(message)
-    await _broadcast_reaction_update(payload)
-    if prev_kind != data.kind:
+    await _broadcast_reaction_update(db, payload, message.conversation_id)
+    # уведомления об оценках — только для общего чата; в личке счётчик непрочитанных
+    if message.conversation_id is None and prev_kind != data.kind:
         # смена реакции: старое уведомление снимаем, новое создаём автору сообщения
         if prev_kind is not None:
             await notification_service.remove_reaction_notification(db, participant, message, prev_kind)
@@ -121,8 +143,8 @@ async def remove_reaction(
 ) -> MessageOut:
     prev_kind = await message_service.get_reaction_kind(db, participant, message_id)
     message = await message_service.remove_reaction(db, participant, message_id)
-    if prev_kind is not None:
+    if message.conversation_id is None and prev_kind is not None:
         await notification_service.remove_reaction_notification(db, participant, message, prev_kind)
     payload = MessageOut.model_validate(message)
-    await _broadcast_reaction_update(payload)
+    await _broadcast_reaction_update(db, payload, message.conversation_id)
     return payload

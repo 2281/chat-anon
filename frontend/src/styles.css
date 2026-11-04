@@ -769,3 +769,75 @@ body {
 .draft.kept {
   border-color: var(--accent-dark);
 }
+
+/* ---------- личные сообщения ---------- */
+
+.dm-screen {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.dm-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 3px solid var(--border);
+  background: var(--panel);
+}
+
+.dm-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.dm-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.dm-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 3px solid var(--border);
+  box-shadow: 0 4px 0 var(--shadow);
+  color: var(--text);
+  font-family: 'VT323', monospace;
+  font-size: 19px;
+  cursor: pointer;
+}
+
+.dm-item:hover {
+  border-color: var(--accent);
+}
+
+.dm-peer {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--accent);
+}
+
+.dm-excerpt {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 90%;
+}
+
+.dm-item .notif-badge {
+  top: 6px;
+  right: 8px;
+}

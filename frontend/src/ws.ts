@@ -1,7 +1,10 @@
+import { getToken } from './api'
+
 export type WsEventHandler = (event: string, data: unknown) => void
 export type WsStatusHandler = (connected: boolean) => void
 
-/** Подключение к /ws/chat с автоматическим переподключением с нарастающей задержкой. */
+/** Подключение к /ws/chat с автоматическим переподключением с нарастающей задержкой.
+ *  Токен в query связывает сокет с участником — для таргетированных событий (личка). */
 export function connectChatWs(onEvent: WsEventHandler, onStatus: WsStatusHandler): () => void {
   let stopped = false
   let socket: WebSocket | null = null
@@ -12,7 +15,10 @@ export function connectChatWs(onEvent: WsEventHandler, onStatus: WsStatusHandler
   const open = () => {
     if (stopped) return
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    socket = new WebSocket(`${protocol}//${location.host}/ws/chat`)
+    const token = getToken()
+    socket = new WebSocket(
+      `${protocol}//${location.host}/ws/chat${token ? `?token=${token}` : ''}`,
+    )
     socket.onopen = () => {
       attempts = 0
       onStatus(true)

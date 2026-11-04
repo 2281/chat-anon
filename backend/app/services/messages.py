@@ -77,6 +77,7 @@ async def list_messages(
         select(Message)
         .options(*_MESSAGE_LOAD)
         .where(Message.reply_to_id.is_(None))
+        .where(Message.conversation_id.is_(None))  # личка в общую ленту не попадает
         .order_by(Message.id.desc())
         .limit(limit + 1)
     )
@@ -186,8 +187,8 @@ async def remove_reaction(
 
 async def delete_message(
     db: AsyncSession, participant: Participant, message_id: int
-) -> list[str]:
-    """Удаляет сообщение автора. Возвращает s3-ключи вложений для очистки хранилища.
+) -> tuple[list[str], int | None]:
+    """Удаляет сообщение автора. Возвращает s3-ключи вложений и id диалога (None — общий чат).
 
     Ответы и цитаты на это сообщение сохраняются — их FK обнуляются (SET NULL).
     """
@@ -202,9 +203,10 @@ async def delete_message(
         (await db.execute(select(Attachment.s3_key).where(Attachment.message_id == message_id)))
         .scalars()
     )
+    conversation_id = message.conversation_id
     await db.delete(message)
     await db.commit()
-    return keys
+    return keys, conversation_id
 
 
 async def update_message(

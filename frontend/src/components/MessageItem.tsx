@@ -7,7 +7,10 @@ interface Props {
   message: ChatMessage
   own: boolean
   replyAuthor?: string
-  onReply: () => void
+  /** без onReply кнопка «ответ» скрыта (личные диалоги — плоская лента) */
+  onReply?: () => void
+  /** кнопка «✉ в лс» рядом с ником (общая лента, чужие сообщения) */
+  onStartDm?: () => void
   onReaction: (kind: 'like' | 'dislike') => void
   onDelete: () => Promise<void>
   onEdit: (message: ChatMessage, text: string, attachmentIds: number[]) => Promise<void>
@@ -70,7 +73,7 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
   )
 }
 
-export function MessageItem({ message: m, own, replyAuthor, onReply, onReaction, onDelete, onEdit }: Props) {
+export function MessageItem({ message: m, own, replyAuthor, onReply, onStartDm, onReaction, onDelete, onEdit }: Props) {
   const [confirming, setConfirming] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
@@ -123,6 +126,11 @@ export function MessageItem({ message: m, own, replyAuthor, onReply, onReaction,
       <header className="message-head">
         <span className="nickname">{m.author_nickname}</span>
         {own && <span className="you-tag">вы</span>}
+        {onStartDm && !own && (
+          <button className="px-btn mini" title="написать в личные сообщения" onClick={onStartDm}>
+            ✉ в лс
+          </button>
+        )}
         <span className="time">{time}</span>
         {m.edited_at && !editing && <span className="edited-tag" title="сообщение изменено">изм.</span>}
       </header>
@@ -220,7 +228,7 @@ export function MessageItem({ message: m, own, replyAuthor, onReply, onReaction,
             >
               👎 {m.dislikes}
             </button>
-            <button className="px-btn" onClick={onReply}>↪ ответ</button>
+            {onReply && <button className="px-btn" onClick={onReply}>↪ ответ</button>}
             {own &&
               (confirming ? (
                 <button className="px-btn danger" onClick={() => onDelete()}>

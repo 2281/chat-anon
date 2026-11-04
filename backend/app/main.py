@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import messages, notifications, participants, uploads, ws
+from app.api import conversations, messages, notifications, participants, uploads, ws
 from app.storage.s3 import ensure_bucket
 
 
@@ -17,6 +17,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="chat-anon", lifespan=lifespan)
 app.include_router(participants.router)
 app.include_router(messages.router)
+app.include_router(conversations.router)
 app.include_router(notifications.router)
 app.include_router(uploads.router)
 app.include_router(ws.router)

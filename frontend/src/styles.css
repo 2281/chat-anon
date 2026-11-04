@@ -245,6 +245,27 @@ body {
   padding: 8px 12px;
 }
 
+/* ветка ответов: вложенные сообщения прилипают под родителем с отступом-«нитью» */
+.thread-root,
+.thread-node {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.thread-node {
+  margin-left: 16px;
+  padding-left: 10px;
+  border-left: 3px solid var(--border);
+}
+
+/* глубокая вложенность — дальше не отступаем, чтобы не уползать вправо */
+.thread-node.no-indent {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+}
+
 .message.own {
   border-color: var(--accent-dark);
   background: var(--panel-2);

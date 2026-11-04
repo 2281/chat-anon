@@ -51,6 +51,12 @@ class MessageOut(BaseModel):
     likes: int
     dislikes: int
     my_reaction: ReactionKind | None = None
+    # все потомки (ответы, ответы на ответы...) плоским списком по id ASC;
+    # заполняется только в GET /api/messages для корневых сообщений
+    replies: list["MessageOut"] = []
+
+
+MessageOut.model_rebuild()
 
 
 class MessagePage(BaseModel):

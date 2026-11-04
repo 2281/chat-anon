@@ -68,16 +68,55 @@ async def create_message(
 async def list_messages(
     db: AsyncSession, before_id: int | None, limit: int
 ) -> tuple[list[Message], int | None]:
-    stmt = select(Message).options(*_MESSAGE_LOAD).order_by(Message.id.desc()).limit(limit + 1)
+    """Страница корневых сообщений (не ответов), новые первыми.
+
+    К каждому корню прикрепляет транзитный атрибут .replies — все потомки
+    (ответы любой глубины) плоским списком по id ASC, для сериализации в MessageOut.
+    """
+    stmt = (
+        select(Message)
+        .options(*_MESSAGE_LOAD)
+        .where(Message.reply_to_id.is_(None))
+        .order_by(Message.id.desc())
+        .limit(limit + 1)
+    )
     if before_id is not None:
         stmt = stmt.where(Message.id < before_id)
-    messages = list((await db.execute(stmt)).scalars())
+    roots = list((await db.execute(stmt)).scalars())
 
     next_cursor = None
-    if len(messages) > limit:  # есть более ранняя история
-        messages = messages[:limit]
-        next_cursor = messages[-1].id
-    return messages, next_cursor
+    if len(roots) > limit:  # есть более ранняя история
+        roots = roots[:limit]
+        next_cursor = roots[-1].id
+
+    # потомки корней страницы: итеративный обход по уровням (глубина веток мала)
+    root_of = {root.id: root.id for root in roots}
+    replies: dict[int, list[Message]] = {root.id: [] for root in roots}
+    frontier = [root.id for root in roots]
+    while frontier:
+        children = list(
+            (
+                await db.execute(
+                    select(Message)
+                    .options(*_MESSAGE_LOAD)
+                    .where(Message.reply_to_id.in_(frontier))
+                    .order_by(Message.id)
+                )
+            ).scalars()
+        )
+        frontier = []
+        for child in children:
+            root_id = root_of[child.reply_to_id]
+            root_of[child.id] = root_id
+            replies[root_id].append(child)
+            frontier.append(child.id)
+
+    for root in roots:
+        root_replies = sorted(replies[root.id], key=lambda m: m.id)
+        for reply in root_replies:
+            reply.replies = []
+        root.replies = root_replies
+    return roots, next_cursor
 
 
 async def attach_my_reactions(

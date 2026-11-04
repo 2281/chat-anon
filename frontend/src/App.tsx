@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import type { ChatMessage, Participant, ReactionKind } from './api'
+import type { AppNotification, ChatMessage, Participant, ReactionKind } from './api'
 import { api, clearToken, getToken, setToken } from './api'
 import { connectChatWs } from './ws'
 import { ChatHeader } from './components/ChatHeader'
@@ -9,6 +9,8 @@ import { MessageItem } from './components/MessageItem'
 import { StartScreen } from './components/StartScreen'
 
 const PAGE_SIZE = 50
+// столько ответов видно в свёрнутой ветке, остальные — за кнопкой «▸ …»
+const COLLAPSE_AFTER = 2
 
 // страница API: корневые сообщения + их ветки (replies) — в плоский список для стейта
 const flattenPage = (items: ChatMessage[]): ChatMessage[] =>
@@ -24,6 +26,13 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [quote, setQuote] = useState<{ message: ChatMessage; excerpt: string } | null>(null)
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const unreadCount = notifications.filter((n) => !n.is_read).length
+  // id узлов с развёрнутыми ответами (по умолчанию видны первые 2, остальные свёрнуты)
+  const [expandedThreads, setExpandedThreads] = useState<ReadonlySet<number>>(new Set())
+
+  const expandThread = (id: number) =>
+    setExpandedThreads((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
 
   const listRef = useRef<HTMLDivElement>(null)
   const knownIds = useRef(new Set<number>())
@@ -33,6 +42,10 @@ export default function App() {
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+  const nextCursorRef = useRef(nextCursor)
+  useEffect(() => {
+    nextCursorRef.current = nextCursor
+  }, [nextCursor])
 
   const scrollToBottom = (smooth = false) => {
     const el = listRef.current
@@ -115,6 +128,7 @@ export default function App() {
   useEffect(() => {
     if (!me) return
     loadInitial().catch((e) => setError(String(e)))
+    api.listNotifications().then(setNotifications).catch(() => {})
     const close = connectChatWs(
       (event, data) => {
         if (event === 'message.new') {
@@ -126,6 +140,12 @@ export default function App() {
           removeMessage((data as { message_id: number }).message_id)
         } else if (event === 'message.updated') {
           mergeMessage(data as ChatMessage)
+        } else if (event === 'notification.new') {
+          // канал общий: берём только свои уведомления
+          const n = data as AppNotification & { recipient_token: string }
+          if (n.recipient_token === me.token) {
+            setNotifications((prev) => [n, ...prev])
+          }
         }
       },
       setConnected,
@@ -206,6 +226,53 @@ export default function App() {
     mergeMessage(updated)
   }
 
+  // клик по уведомлению: пометить прочитанным и перейти к сообщению в ленте
+  // (если оно в незагруженной истории — догружаем страницы, пока не найдём)
+  const handleOpenNotification = async (n: AppNotification) => {
+    setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)))
+    api.markNotificationRead(n.id).catch(() => {})
+
+    let cursor = nextCursorRef.current
+    const loaded: ChatMessage[] = []
+    while (!knownIds.current.has(n.message_id) && cursor != null) {
+      const page = await api.listMessages(cursor, PAGE_SIZE)
+      const flat = flattenPage(page.items)
+      flat.forEach((m) => knownIds.current.add(m.id))
+      loaded.push(...flat)
+      setMessages((prev) => {
+        const have = new Set(prev.map((m) => m.id))
+        return [...flat.filter((m) => !have.has(m.id)), ...prev]
+      })
+      cursor = page.next_cursor
+      nextCursorRef.current = cursor
+      setNextCursor(cursor)
+    }
+
+    // разворачиваем всю цепочку родителей, чтобы целевое сообщение было видно
+    const byId = new Map(messagesRef.current.map((m) => [m.id, m] as const))
+    loaded.forEach((m) => byId.set(m.id, m))
+    const toExpand: number[] = []
+    let cur = byId.get(n.message_id)
+    while (cur?.reply_to_id != null) {
+      toExpand.push(cur.reply_to_id)
+      cur = byId.get(cur.reply_to_id)
+    }
+    if (toExpand.length > 0) {
+      setExpandedThreads((prev) => new Set([...prev, ...toExpand]))
+    }
+
+    // два кадра — дождаться рендера догруженных сообщений
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`msg-${n.message_id}`)
+        if (!el) return
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        el.classList.add('flash')
+        window.setTimeout(() => el.classList.remove('flash'), 2000)
+      }),
+    )
+  }
+
   // цитирование выделенного фрагмента текста сообщения
   const handleListMouseUp = (e: ReactMouseEvent) => {
     const selection = window.getSelection()
@@ -247,27 +314,53 @@ export default function App() {
     return { roots, childrenByParent }
   }, [messages])
 
-  const renderThread = (m: ChatMessage, depth: number): ReactNode => (
-    <div key={m.id} className={depth === 0 ? 'thread-root' : depth < 6 ? 'thread-node' : 'thread-node no-indent'}>
-      <MessageItem
-        message={m}
-        own={m.author_token === me!.token}
-        replyAuthor={m.reply_to_id != null ? nicknameById.get(m.reply_to_id) : undefined}
-        onReply={() => setReplyTo(m)}
-        onReaction={(kind) => handleReaction(m, kind)}
-        onDelete={() => handleDelete(m)}
-        onEdit={handleEdit}
-      />
-      {(childrenByParent.get(m.id) ?? []).map((child) => renderThread(child, depth + 1))}
-    </div>
-  )
+  const renderThread = (m: ChatMessage, depth: number): ReactNode => {
+    const children = childrenByParent.get(m.id) ?? []
+    // больше двух ответов — показываем первые два, остальные за кнопкой «▸ …»
+    const collapsed = children.length > COLLAPSE_AFTER && !expandedThreads.has(m.id)
+    const visible = collapsed ? children.slice(0, COLLAPSE_AFTER) : children
+    return (
+      <div
+        key={m.id}
+        id={`msg-${m.id}`}
+        className={depth === 0 ? 'thread-root' : depth < 6 ? 'thread-node' : 'thread-node no-indent'}
+      >
+        <MessageItem
+          message={m}
+          own={m.author_token === me!.token}
+          replyAuthor={m.reply_to_id != null ? nicknameById.get(m.reply_to_id) : undefined}
+          onReply={() => setReplyTo(m)}
+          onReaction={(kind) => handleReaction(m, kind)}
+          onDelete={() => handleDelete(m)}
+          onEdit={handleEdit}
+        />
+        {visible.map((child) => renderThread(child, depth + 1))}
+        {collapsed && (
+          <button
+            className="px-btn thread-expand"
+            title="развернуть все ответы"
+            onClick={() => expandThread(m.id)}
+          >
+            ▸ … ещё {children.length - COLLAPSE_AFTER}
+          </button>
+        )}
+      </div>
+    )
+  }
 
   if (booting) return <div className="boot">загрузка...</div>
   if (!me) return <StartScreen onEnter={handleEnter} error={error} />
 
   return (
     <div className="app">
-      <ChatHeader me={me} connected={connected} onLogout={handleLogout} />
+      <ChatHeader
+        me={me}
+        connected={connected}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        onOpenNotification={handleOpenNotification}
+        onLogout={handleLogout}
+      />
       <div className="message-list" ref={listRef} onScroll={handleScroll} onMouseUp={handleListMouseUp}>
         {nextCursor != null && (
           <button className="px-btn load-older" onClick={loadOlder} disabled={loadingOlder}>

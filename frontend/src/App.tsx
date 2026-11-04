@@ -378,7 +378,17 @@ export default function App() {
           <button
             className="px-btn thread-expand"
             title="свернуть ветку"
-            onClick={() => toggleThread(m.id)}
+            onClick={() => {
+              toggleThread(m.id)
+              // после сворачивания лента укорачивается — центрируем корень треда
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() =>
+                  document
+                    .getElementById(`msg-${m.id}`)
+                    ?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+                ),
+              )
+            }}
           >
             ▾ свернуть
           </button>

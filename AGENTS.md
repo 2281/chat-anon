@@ -10,12 +10,12 @@
 
 ## Функциональные требования (из README.md) и их статус
 
-- Заход без регистрации — **готово** (токен + опциональный никнейм `анон-<число>`).
+- Заход без регистрации — **готово**: вход по **email** (без пароля) + опциональный никнейм `анон-<число>`. Идентичность — по email: повторный вход с тем же email выдаёт существующую запись (тот же token), независимо от введённого никнейма; все сообщения/действия крепятся к этому id. Email хранится lowercase, unique (nullable — у записей до миграции его нет).
 - Общая лента сообщений — **готово** (REST + WebSocket).
 - Текст, эмодзи — **готово**.
 - Файлы: фото/аудио/видео до 100 МБ — **готово**: presigned-загрузка напрямую в MinIO через прокси Vite, превью фото с полноэкранным просмотром, аудио/видео проигрываются в чате, всё скачивается.
 - Лайки/дизлайки — **готово**.
-- Ответы и цитирование (всего/части) — **готово**.
+- Ответы и цитирование (всего/части) — **готово**; ответы отображаются **тредами** (как комментарии под исходным сообщением, вложенность любой глубины — ответ на ответ крепится к своему родителю).
 - Удаление и редактирование своих сообщений (текст и вложения) — **готово**; метка «изм.» (`messages.edited_at`), WS-события `message.updated`/`message.deleted`.
 - Антиспам — не выбран, отложено.
 - Пиксель-арт интерфейс — **готово** (React + CSS, шрифты Press Start 2P / VT323).
@@ -29,10 +29,10 @@
   - presigned URL подписываются на внутреннем endpoint (`minio:9000`), а в выдачу отдаются **относительными** (`/chatanon/<key>?X-Amz-...`, режим включается любым непустым `S3_PROXY_BASE_URL`) — браузер резолвит их от origin открытой страницы, Vite проксирует `/chatanon/*` на MinIO (`changeOrigin` ставит Host minio:9000, подпись s3v4 валидна). Медиа работают с любого устройства, открывшего страницу (localhost, телефон по Wi-Fi), CORS отсутствует. Важно: ходить нужно через origin фронтенда (5173) — при прямом запросе к бэкенду (8000) относительный редирект `/chatanon/*` упрётся в сам бэкенд и даст 404;
   - `GET /api/attachments/{id}/file` — 307 на presigned GET (12 ч); `?download=true` — Content-Disposition: attachment (filename* для не-ASCII имён);
   - валидация: MIME image|audio|video, расширение из белого списка, размер ≤ 100 МБ (иначе 415/422).
-- **БД:** PostgreSQL 17. Таблицы: `participants`, `messages` (есть `edited_at`), `attachments` (message_id nullable), `reactions`. Счётчики лайков — column_property.
+- **БД:** PostgreSQL 17. Таблицы: `participants` (есть `email`, unique), `messages` (есть `edited_at`), `attachments` (message_id nullable), `reactions`. Счётчики лайков — column_property.
 - **API ядра:**
-  - `POST /api/participants`, `GET/PATCH /api/participants/me`, заголовок `X-Participant-Token`;
-  - `POST /api/messages` (текст ≤4000, reply/quote, `attachment_ids`), `GET /api/messages?before_id=&limit=` (+`next_cursor`, опциональный токен → `my_reaction`);
+  - `POST /api/participants` — тело `{email, nickname?}`: email уже есть → 200 и существующая запись (непустой никнейм обновляется), нет → 201 и новая (ник или `анон-<число>`); `GET/PATCH /api/participants/me`, заголовок `X-Participant-Token`;
+  - `POST /api/messages` (текст ≤4000, reply/quote, `attachment_ids`), `GET /api/messages?before_id=&limit=` — страница **корневых** сообщений (пагинация только по ним, `next_cursor`); у каждого корня поле `replies` — все потомки ветки плоским списком по id ASC (опциональный токен → `my_reaction` и у корней, и у ответов); фронт строит дерево по `reply_to_id`;
   - `PATCH /api/messages/{id}` — редактирование своего сообщения (только автор): текст + полный желаемый набор вложений; убранные файлы чистятся из S3 фоновой задачей; WS-событие `message.updated`;
   - `DELETE /api/messages/{id}` — только автор; реакции и вложения каскадом, файлы из S3 чистятся фоновой задачей, ответы сохраняются (reply_to_id → NULL); WS-событие `message.deleted`;
   - `POST /api/messages/{id}/reactions`, `DELETE /api/messages/{id}/reactions/me`;

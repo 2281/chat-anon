@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent as ReactMouseEvent } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { ChatMessage, Participant, ReactionKind } from './api'
 import { api, clearToken, getToken, setToken } from './api'
 import { connectChatWs } from './ws'
@@ -9,6 +9,10 @@ import { MessageItem } from './components/MessageItem'
 import { StartScreen } from './components/StartScreen'
 
 const PAGE_SIZE = 50
+
+// страница API: корневые сообщения + их ветки (replies) — в плоский список для стейта
+const flattenPage = (items: ChatMessage[]): ChatMessage[] =>
+  items.flatMap((m) => [m, ...(m.replies ?? [])])
 
 export default function App() {
   const [booting, setBooting] = useState(true)
@@ -65,11 +69,11 @@ export default function App() {
 
   const loadInitial = useCallback(async () => {
     const page = await api.listMessages(undefined, PAGE_SIZE)
-    const items = [...page.items].reverse()
+    const items = flattenPage(page.items)
     knownIds.current = new Set(items.map((m) => m.id))
     setMessages(items)
     setNextCursor(page.next_cursor)
-    lastIdRef.current = items.length ? items[items.length - 1].id : null
+    lastIdRef.current = items.reduce((max, m) => Math.max(max, m.id), 0)
     requestAnimationFrame(() => scrollToBottom())
   }, [])
 
@@ -80,8 +84,8 @@ export default function App() {
     const prevHeight = el?.scrollHeight ?? 0
     try {
       const page = await api.listMessages(nextCursor, PAGE_SIZE)
-      const older = [...page.items].reverse()
-      page.items.forEach((m) => knownIds.current.add(m.id))
+      const older = flattenPage(page.items)
+      older.forEach((m) => knownIds.current.add(m.id))
       setMessages((prev) => [...older, ...prev])
       setNextCursor(page.next_cursor)
       // сохранить позицию прокрутки после добавления блока сверху
@@ -129,14 +133,16 @@ export default function App() {
     return close
   }, [me, loadInitial, mergeMessage, updateReactionCounts, removeMessage])
 
-  // автопрокрутка к новым сообщениям, если пользователь у нижнего края
+  // автопрокрутка к новым сообщениям (включая ответы в ветках), если пользователь у нижнего края
+  const maxId = messages.reduce((max, m) => Math.max(max, m.id), 0)
   useEffect(() => {
-    const lastId = messages.length ? messages[messages.length - 1].id : null
-    if (lastId !== lastIdRef.current) {
-      if (lastIdRef.current !== null && stickToBottom.current) scrollToBottom(true)
-      lastIdRef.current = lastId
+    if (maxId !== lastIdRef.current) {
+      if (lastIdRef.current !== null && lastIdRef.current !== 0 && stickToBottom.current) {
+        scrollToBottom(true)
+      }
+      lastIdRef.current = maxId
     }
-  }, [messages])
+  }, [maxId])
 
   const handleScroll = () => {
     const el = listRef.current
@@ -144,10 +150,10 @@ export default function App() {
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
   }
 
-  const handleEnter = async (nickname: string) => {
+  const handleEnter = async (email: string, nickname: string) => {
     setError(null)
     try {
-      const participant = await api.register(nickname)
+      const participant = await api.register(email, nickname)
       setToken(participant.token)
       setMe(participant)
     } catch (e) {
@@ -221,6 +227,41 @@ export default function App() {
     return map
   }, [messages])
 
+  // дерево веток: корни — сообщения без родителя в загруженном наборе,
+  // остальные группируются по reply_to_id (ответ на ответ крепится к своему родителю)
+  const { roots, childrenByParent } = useMemo(() => {
+    const ids = new Set(messages.map((m) => m.id))
+    const roots: ChatMessage[] = []
+    const childrenByParent = new Map<number, ChatMessage[]>()
+    for (const m of messages) {
+      if (m.reply_to_id != null && ids.has(m.reply_to_id)) {
+        const list = childrenByParent.get(m.reply_to_id) ?? []
+        list.push(m)
+        childrenByParent.set(m.reply_to_id, list)
+      } else {
+        roots.push(m)
+      }
+    }
+    roots.sort((a, b) => a.id - b.id)
+    childrenByParent.forEach((list) => list.sort((a, b) => a.id - b.id))
+    return { roots, childrenByParent }
+  }, [messages])
+
+  const renderThread = (m: ChatMessage, depth: number): ReactNode => (
+    <div key={m.id} className={depth === 0 ? 'thread-root' : depth < 6 ? 'thread-node' : 'thread-node no-indent'}>
+      <MessageItem
+        message={m}
+        own={m.author_token === me!.token}
+        replyAuthor={m.reply_to_id != null ? nicknameById.get(m.reply_to_id) : undefined}
+        onReply={() => setReplyTo(m)}
+        onReaction={(kind) => handleReaction(m, kind)}
+        onDelete={() => handleDelete(m)}
+        onEdit={handleEdit}
+      />
+      {(childrenByParent.get(m.id) ?? []).map((child) => renderThread(child, depth + 1))}
+    </div>
+  )
+
   if (booting) return <div className="boot">загрузка...</div>
   if (!me) return <StartScreen onEnter={handleEnter} error={error} />
 
@@ -233,19 +274,8 @@ export default function App() {
             {loadingOlder ? 'загрузка...' : '↑ загрузить ранее'}
           </button>
         )}
-        {messages.map((m) => (
-          <MessageItem
-            key={m.id}
-            message={m}
-            own={m.author_token === me.token}
-            replyAuthor={m.reply_to_id != null ? nicknameById.get(m.reply_to_id) : undefined}
-            onReply={() => setReplyTo(m)}
-            onReaction={(kind) => handleReaction(m, kind)}
-            onDelete={() => handleDelete(m)}
-            onEdit={handleEdit}
-          />
-        ))}
-        {messages.length === 0 && (
+        {roots.map((m) => renderThread(m, 0))}
+        {roots.length === 0 && (
           <div className="empty">пока пусто — напиши первое сообщение!</div>
         )}
       </div>

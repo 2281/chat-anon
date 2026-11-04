@@ -26,6 +26,8 @@ export interface ChatMessage {
   likes: number
   dislikes: number
   my_reaction: ReactionKind | null
+  /** все потомки ветки плоским списком (только у корневых в GET /api/messages) */
+  replies?: ChatMessage[]
 }
 
 export interface MessagePage {
@@ -111,10 +113,10 @@ export function guessMime(name: string): string {
 }
 
 export const api = {
-  register: (nickname?: string) =>
+  register: (email: string, nickname?: string) =>
     request<Participant>('/api/participants', {
       method: 'POST',
-      body: JSON.stringify({ nickname: nickname?.trim() || null }),
+      body: JSON.stringify({ email: email.trim(), nickname: nickname?.trim() || null }),
     }),
   me: () => request<Participant>('/api/participants/me'),
   updateMe: (nickname: string) =>

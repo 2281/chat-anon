@@ -37,10 +37,12 @@ async def list_messages(
     before_id: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
 ) -> MessagePage:
-    messages, next_cursor = await message_service.list_messages(db, before_id, limit)
+    roots, next_cursor = await message_service.list_messages(db, before_id, limit)
     if participant is not None:
-        await message_service.attach_my_reactions(db, messages, participant.token)
-    return MessagePage(items=[MessageOut.model_validate(m) for m in messages], next_cursor=next_cursor)
+        # реакции проставляем и корням, и всем ответам в ветках
+        all_messages = [m for root in roots for m in (root, *root.replies)]
+        await message_service.attach_my_reactions(db, all_messages, participant.token)
+    return MessagePage(items=[MessageOut.model_validate(m) for m in roots], next_cursor=next_cursor)
 
 
 @router.patch("/{message_id}", response_model=MessageOut)

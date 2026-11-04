@@ -14,6 +14,7 @@ alembic>=1.13,<2.0        # миграции схемы БД
 # Конфигурация
 pydantic>=2.7,<3.0
 pydantic-settings>=2.3,<3.0
+email-validator>=2.0,<3.0  # EmailStr в pydantic-схемах (валидация email участника)
 
 # S3-хранилище (MinIO): presigned URL, загрузка/удаление объектов
 aioboto3>=12.0,<14.0

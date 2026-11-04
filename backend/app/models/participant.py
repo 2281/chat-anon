@@ -11,6 +11,9 @@ class Participant(Base):
     __tablename__ = "participants"
 
     token: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
+    # идентичность пользователя: вход по email выдаёт существующую запись;
+    # nullable — у записей, созданных до появления email, его нет
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     nickname: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

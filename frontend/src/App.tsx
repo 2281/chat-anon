@@ -210,7 +210,30 @@ export default function App() {
     mergeMessage(created)
     setReplyTo(null)
     setQuote(null)
-    stickToBottom.current = true
+    if (created.reply_to_id != null) {
+      // ответ: разворачиваем тред по цепочке родителей и центрируем отправленное сообщение
+      stickToBottom.current = false
+      const byId = new Map(messagesRef.current.map((m) => [m.id, m] as const))
+      byId.set(created.id, created)
+      const toExpand: number[] = []
+      let cur: ChatMessage | undefined = created
+      while (cur?.reply_to_id != null) {
+        toExpand.push(cur.reply_to_id)
+        cur = byId.get(cur.reply_to_id)
+      }
+      if (toExpand.length > 0) {
+        setExpandedThreads((prev) => new Set([...prev, ...toExpand]))
+      }
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          document
+            .getElementById(`msg-${created.id}`)
+            ?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+        ),
+      )
+    } else {
+      stickToBottom.current = true
+    }
   }
 
   // повторный клик по своей активной реакции снимает её

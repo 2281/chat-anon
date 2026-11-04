@@ -28,11 +28,17 @@ export default function App() {
   const [quote, setQuote] = useState<{ message: ChatMessage; excerpt: string } | null>(null)
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const unreadCount = notifications.filter((n) => !n.is_read).length
-  // id узлов с развёрнутыми ответами (по умолчанию видны первые 2, остальные свёрнуты)
+  // id узлов с развёрнутыми ответами (по умолчанию все треды свёрнуты:
+  // видны корень и первый ответ; разворачиваются стрелкой или переходом по уведомлению)
   const [expandedThreads, setExpandedThreads] = useState<ReadonlySet<number>>(new Set())
 
-  const expandThread = (id: number) =>
-    setExpandedThreads((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+  const toggleThread = (id: number) =>
+    setExpandedThreads((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   const listRef = useRef<HTMLDivElement>(null)
   const knownIds = useRef(new Set<number>())
@@ -296,7 +302,7 @@ export default function App() {
 
   // дерево веток: корни — сообщения без родителя в загруженном наборе,
   // остальные группируются по reply_to_id (ответ на ответ крепится к своему родителю)
-  const { roots, childrenByParent } = useMemo(() => {
+  const { roots, childrenByParent, repliesCountById } = useMemo(() => {
     const ids = new Set(messages.map((m) => m.id))
     const roots: ChatMessage[] = []
     const childrenByParent = new Map<number, ChatMessage[]>()
@@ -311,14 +317,36 @@ export default function App() {
     }
     roots.sort((a, b) => a.id - b.id)
     childrenByParent.forEach((list) => list.sort((a, b) => a.id - b.id))
-    return { roots, childrenByParent }
+    // число всех потомков узла (дети всегда новее родителя — считаем от новых к старым)
+    const repliesCountById = new Map<number, number>()
+    const byIdDesc = [...messages].sort((a, b) => b.id - a.id)
+    for (const m of byIdDesc) {
+      let count = 0
+      for (const child of childrenByParent.get(m.id) ?? []) {
+        count += 1 + (repliesCountById.get(child.id) ?? 0)
+      }
+      repliesCountById.set(m.id, count)
+    }
+    return { roots, childrenByParent, repliesCountById }
   }, [messages])
 
-  const renderThread = (m: ChatMessage, depth: number): ReactNode => {
-    const children = childrenByParent.get(m.id) ?? []
-    // больше двух ответов — показываем первые два, остальные за кнопкой «▸ …»
-    const collapsed = children.length > COLLAPSE_AFTER && !expandedThreads.has(m.id)
-    const visible = collapsed ? children.slice(0, COLLAPSE_AFTER) : children
+  // asLeaf — рендерить без потомков (первый ответ в свёрнутом треде)
+  const renderThread = (m: ChatMessage, depth: number, asLeaf = false): ReactNode => {
+    const allChildren = asLeaf ? [] : childrenByParent.get(m.id) ?? []
+    const expanded = expandedThreads.has(m.id)
+    // корень: сворачиваем тред, если сообщений больше двух — видны корень и первый ответ;
+    // вложенный узел: сворачиваем, если прямых ответов больше двух — видны первые два
+    const collapsible =
+      depth === 0
+        ? (repliesCountById.get(m.id) ?? 0) > 1
+        : allChildren.length > COLLAPSE_AFTER
+    const collapsed = collapsible && !expanded
+    const visible = collapsed ? allChildren.slice(0, depth === 0 ? 1 : COLLAPSE_AFTER) : allChildren
+    const hiddenCount = collapsed
+      ? depth === 0
+        ? (repliesCountById.get(m.id) ?? 0) - 1
+        : allChildren.length - COLLAPSE_AFTER
+      : 0
     return (
       <div
         key={m.id}
@@ -334,14 +362,25 @@ export default function App() {
           onDelete={() => handleDelete(m)}
           onEdit={handleEdit}
         />
-        {visible.map((child) => renderThread(child, depth + 1))}
+        {visible.map((child, i) =>
+          renderThread(child, depth + 1, collapsed && depth === 0 && i === 0),
+        )}
         {collapsed && (
           <button
             className="px-btn thread-expand"
-            title="развернуть все ответы"
-            onClick={() => expandThread(m.id)}
+            title="развернуть ветку"
+            onClick={() => toggleThread(m.id)}
           >
-            ▸ … ещё {children.length - COLLAPSE_AFTER}
+            ▸ … ещё {hiddenCount}
+          </button>
+        )}
+        {!collapsed && collapsible && (
+          <button
+            className="px-btn thread-expand"
+            title="свернуть ветку"
+            onClick={() => toggleThread(m.id)}
+          >
+            ▾ свернуть
           </button>
         )}
       </div>

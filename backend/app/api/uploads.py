@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_participant, get_db
-from app.models import Attachment, Participant
+from app.models import Attachment, Message, Participant
+from app.services.conversations import get_member
 from app.storage.s3 import presign_download, presign_upload
 
 router = APIRouter(tags=["uploads"])
@@ -72,15 +73,27 @@ async def create_presigned_upload(
 async def attachment_file(
     attachment_id: int,
     download: bool = Query(default=False),
+    token: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """Отдача файла: редирект на presigned GET URL (short-lived).
 
     ?download=true — отдать с Content-Disposition: attachment (скачивание),
     без параметра — подходит для <img>/<audio>/<video> (inline-просмотр).
+    Вложения личных диалогов требуют ?token= участника диалога (теги <img>
+    не отправляют заголовки, поэтому токен — query-параметром).
     """
     attachment = await db.get(Attachment, attachment_id)
     if attachment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "вложение не найдено")
+    if attachment.message_id is not None:
+        message = await db.get(Message, attachment.message_id)
+        if message is not None and message.conversation_id is not None:
+            if token is None:
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED, "вложение личного диалога требует token"
+                )
+            # 404 для чужих — не раскрываем существование диалога
+            await get_member(db, message.conversation_id, token)
     url = await presign_download(attachment.s3_key, attachment.file_name, download)
     return RedirectResponse(url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)

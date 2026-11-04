@@ -16,6 +16,10 @@ class Message(Base):
     participant_token: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("participants.token", ondelete="CASCADE"), index=True
     )
+    # NULL — сообщение общей ленты; заполнен — сообщение личного диалога
+    conversation_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
     text: Mapped[str] = mapped_column(Text, default="")
     reply_to_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("messages.id", ondelete="SET NULL"), index=True

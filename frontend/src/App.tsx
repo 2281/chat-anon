@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import type { AppNotification, ChatMessage, Participant, ReactionKind } from './api'
+import type { AppNotification, ChatMessage, ConversationSummary, Participant, ReactionKind } from './api'
 import { api, clearToken, getToken, setToken } from './api'
 import { connectChatWs } from './ws'
 import { ChatHeader } from './components/ChatHeader'
 import { Composer } from './components/Composer'
+import { DmChat, DmList } from './components/DirectMessages'
+import type { DmWsHandler } from './components/DirectMessages'
 import { MessageItem } from './components/MessageItem'
 import { StartScreen } from './components/StartScreen'
 
@@ -31,6 +33,26 @@ export default function App() {
   // id узлов с развёрнутыми ответами (по умолчанию все треды свёрнуты:
   // видны корень и первый ответ; разворачиваются стрелкой или переходом по уведомлению)
   const [expandedThreads, setExpandedThreads] = useState<ReadonlySet<number>>(new Set())
+  // личка: null — общая лента; list — список диалогов; chat — открытый диалог
+  const [dmView, setDmView] = useState<
+    { kind: 'list' } | { kind: 'chat'; conversation: ConversationSummary } | null
+  >(null)
+  const [conversations, setConversations] = useState<ConversationSummary[]>([])
+  const dmUnread = conversations.reduce((sum, c) => sum + c.unread_count, 0)
+  // id открытого диалога и обработчик его WS-событий (для маршрутизации из общего сокета)
+  const openDmRef = useRef<number | null>(null)
+  const dmHandlerRef = useRef<DmWsHandler | null>(null)
+  const registerDmHandler = useCallback((fn: DmWsHandler | null) => {
+    dmHandlerRef.current = fn
+  }, [])
+  useEffect(() => {
+    openDmRef.current = dmView?.kind === 'chat' ? dmView.conversation.id : null
+  }, [dmView])
+  const handleDmRead = useCallback((conversationId: number) => {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === conversationId ? { ...c, unread_count: 0 } : c)),
+    )
+  }, [])
 
   const toggleThread = (id: number) =>
     setExpandedThreads((prev) => {
@@ -135,6 +157,7 @@ export default function App() {
     if (!me) return
     loadInitial().catch((e) => setError(String(e)))
     api.listNotifications().then(setNotifications).catch(() => {})
+    api.listConversations().then(setConversations).catch(() => {})
     const close = connectChatWs(
       (event, data) => {
         if (event === 'message.new') {
@@ -151,6 +174,33 @@ export default function App() {
           const n = data as AppNotification & { recipient_token: string }
           if (n.recipient_token === me.token) {
             setNotifications((prev) => [n, ...prev])
+          }
+        } else if (event === 'dm.new') {
+          const m = data as ChatMessage & { conversation_id: number }
+          // бейдж и выдержка в списке диалогов; незнакомый диалог — перечитываем список
+          setConversations((prev) => {
+            const index = prev.findIndex((c) => c.id === m.conversation_id)
+            if (index === -1) {
+              api.listConversations().then(setConversations).catch(() => {})
+              return prev
+            }
+            const isOpen = openDmRef.current === m.conversation_id
+            const updated = {
+              ...prev[index],
+              last_message: m,
+              unread_count:
+                m.author_token !== me.token && !isOpen
+                  ? prev[index].unread_count + 1
+                  : prev[index].unread_count,
+            }
+            return [updated, ...prev.filter((_, i) => i !== index)]
+          })
+          dmHandlerRef.current?.(event, data)
+        } else if (event === 'dm.updated' || event === 'dm.deleted' || event === 'dm.reaction') {
+          dmHandlerRef.current?.(event, data)
+          if (event === 'dm.deleted') {
+            // удалённое могло быть последним в списке диалогов — проще перечитать
+            api.listConversations().then(setConversations).catch(() => {})
           }
         }
       },
@@ -169,6 +219,13 @@ export default function App() {
       lastIdRef.current = maxId
     }
   }, [maxId])
+
+  // актуализируем список диалогов при открытии экрана лички
+  useEffect(() => {
+    if (dmView?.kind === 'list') {
+      api.listConversations().then(setConversations).catch(() => {})
+    }
+  }, [dmView?.kind])
 
   const handleScroll = () => {
     const el = listRef.current
@@ -255,9 +312,27 @@ export default function App() {
     mergeMessage(updated)
   }
 
+  // «✉ в лс» у чужого сообщения: найти/создать диалог и открыть его
+  const handleStartDm = async (authorToken: string) => {
+    try {
+      const conversation = await api.createConversation(authorToken)
+      setConversations((prev) => {
+        const index = prev.findIndex((c) => c.id === conversation.id)
+        if (index === -1) return [conversation, ...prev]
+        const updated = [...prev]
+        updated[index] = conversation
+        return updated
+      })
+      setDmView({ kind: 'chat', conversation })
+    } catch (e) {
+      setError(`не удалось открыть диалог: ${String(e)}`)
+    }
+  }
+
   // клик по уведомлению: пометить прочитанным и перейти к сообщению в ленте
   // (если оно в незагруженной истории — догружаем страницы, пока не найдём)
   const handleOpenNotification = async (n: AppNotification) => {
+    setDmView(null) // переход к сообщению возможен только из общей ленты
     setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)))
     api.markNotificationRead(n.id).catch(() => {})
 
@@ -381,6 +456,7 @@ export default function App() {
           own={m.author_token === me!.token}
           replyAuthor={m.reply_to_id != null ? nicknameById.get(m.reply_to_id) : undefined}
           onReply={() => setReplyTo(m)}
+          onStartDm={m.author_token !== me!.token ? () => handleStartDm(m.author_token) : undefined}
           onReaction={(kind) => handleReaction(m, kind)}
           onDelete={() => handleDelete(m)}
           onEdit={handleEdit}
@@ -430,27 +506,49 @@ export default function App() {
         connected={connected}
         notifications={notifications}
         unreadCount={unreadCount}
+        dmUnread={dmUnread}
         onOpenNotification={handleOpenNotification}
+        onOpenDmList={() => setDmView({ kind: 'list' })}
         onLogout={handleLogout}
       />
-      <div className="message-list" ref={listRef} onScroll={handleScroll} onMouseUp={handleListMouseUp}>
-        {nextCursor != null && (
-          <button className="px-btn load-older" onClick={loadOlder} disabled={loadingOlder}>
-            {loadingOlder ? 'загрузка...' : '↑ загрузить ранее'}
-          </button>
-        )}
-        {roots.map((m) => renderThread(m, 0))}
-        {roots.length === 0 && (
-          <div className="empty">пока пусто — напиши первое сообщение!</div>
-        )}
-      </div>
-      <Composer
-        replyTo={replyTo}
-        quote={quote}
-        onCancelReply={() => setReplyTo(null)}
-        onCancelQuote={() => setQuote(null)}
-        onSend={handleSend}
-      />
+      {dmView === null && (
+        <>
+          <div className="message-list" ref={listRef} onScroll={handleScroll} onMouseUp={handleListMouseUp}>
+            {nextCursor != null && (
+              <button className="px-btn load-older" onClick={loadOlder} disabled={loadingOlder}>
+                {loadingOlder ? 'загрузка...' : '↑ загрузить ранее'}
+              </button>
+            )}
+            {roots.map((m) => renderThread(m, 0))}
+            {roots.length === 0 && (
+              <div className="empty">пока пусто — напиши первое сообщение!</div>
+            )}
+          </div>
+          <Composer
+            replyTo={replyTo}
+            quote={quote}
+            onCancelReply={() => setReplyTo(null)}
+            onCancelQuote={() => setQuote(null)}
+            onSend={handleSend}
+          />
+        </>
+      )}
+      {dmView?.kind === 'list' && (
+        <DmList
+          conversations={conversations}
+          onOpen={(conversation) => setDmView({ kind: 'chat', conversation })}
+          onBack={() => setDmView(null)}
+        />
+      )}
+      {dmView?.kind === 'chat' && (
+        <DmChat
+          me={me}
+          conversation={dmView.conversation}
+          onBack={() => setDmView({ kind: 'list' })}
+          onRead={handleDmRead}
+          registerHandler={registerDmHandler}
+        />
+      )}
     </div>
   )
 }

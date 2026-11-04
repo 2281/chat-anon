@@ -35,6 +35,14 @@ export interface MessagePage {
   next_cursor: number | null
 }
 
+export interface ConversationSummary {
+  id: number
+  peer_token: string
+  peer_nickname: string
+  last_message: ChatMessage | null
+  unread_count: number
+}
+
 export interface AppNotification {
   id: number
   message_id: number
@@ -158,6 +166,26 @@ export const api = {
   listNotifications: () => request<AppNotification[]>('/api/notifications'),
   markNotificationRead: (id: number) =>
     request<void>(`/api/notifications/${id}/read`, { method: 'POST' }),
+  listConversations: () => request<ConversationSummary[]>('/api/conversations'),
+  createConversation: (participantToken: string) =>
+    request<ConversationSummary>('/api/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ participant_token: participantToken }),
+    }),
+  listDmMessages: (conversationId: number, beforeId?: number, limit = 50) =>
+    request<MessagePage>(
+      `/api/conversations/${conversationId}/messages?limit=${limit}${beforeId != null ? `&before_id=${beforeId}` : ''}`,
+    ),
+  sendDm: (conversationId: number, payload: { text: string; attachment_ids?: number[] }) =>
+    request<ChatMessage>(`/api/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  markConversationRead: (conversationId: number, lastReadMessageId: number) =>
+    request<void>(`/api/conversations/${conversationId}/read`, {
+      method: 'POST',
+      body: JSON.stringify({ last_read_message_id: lastReadMessageId }),
+    }),
 }
 
 /** Прямая загрузка файла по presigned URL (в MinIO через прокси Vite). Возвращает attachment_id. */
@@ -173,7 +201,14 @@ export async function uploadFile(file: File): Promise<number> {
   return attachment_id
 }
 
-/** URL отдачи вложения: inline (превью/плеер) или скачивание. */
+/** URL отдачи вложения: inline (превью/плеер) или скачивание.
+ *  Токен добавляем всегда: вложениям личных диалогов он нужен (у <img> нет заголовков),
+ *  для общего чата бэкенд его игнорирует. */
 export function attachmentUrl(id: number, download = false): string {
-  return `/api/attachments/${id}/file${download ? '?download=true' : ''}`
+  const params = new URLSearchParams()
+  if (download) params.set('download', 'true')
+  const token = getToken()
+  if (token) params.set('token', token)
+  const qs = params.toString()
+  return `/api/attachments/${id}/file${qs ? `?${qs}` : ''}`
 }

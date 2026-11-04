@@ -7,11 +7,13 @@ interface Props {
   connected: boolean
   notifications: AppNotification[]
   unreadCount: number
+  dmUnread: number
   onOpenNotification: (n: AppNotification) => void
+  onOpenDmList: () => void
   onLogout: () => void
 }
 
-export function ChatHeader({ me, connected, notifications, unreadCount, onOpenNotification, onLogout }: Props) {
+export function ChatHeader({ me, connected, notifications, unreadCount, dmUnread, onOpenNotification, onOpenDmList, onLogout }: Props) {
   const [editing, setEditing] = useState(false)
   const [nickname, setNickname] = useState(me.nickname)
   const [notifOpen, setNotifOpen] = useState(false)
@@ -89,6 +91,10 @@ export function ChatHeader({ me, connected, notifications, unreadCount, onOpenNo
             </div>
           )}
         </div>
+        <button className="px-btn notif-bell" title="личные сообщения" onClick={onOpenDmList}>
+          ✉
+          {dmUnread > 0 && <span className="notif-badge">{dmUnread}</span>}
+        </button>
         {editing ? (
           <>
             <input

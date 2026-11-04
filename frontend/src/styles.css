@@ -205,6 +205,116 @@ body {
   flex-wrap: wrap;
 }
 
+/* ---------- уведомления ---------- */
+
+.notif-wrap {
+  position: relative;
+}
+
+.notif-bell {
+  position: relative;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -8px;
+  right: -10px;
+  background: var(--dislike);
+  color: var(--bg);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  padding: 3px 5px;
+  border: 2px solid var(--bg);
+}
+
+.notif-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 320px;
+  max-width: 80vw;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 3px solid var(--border);
+  box-shadow: 5px 5px 0 var(--shadow);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+}
+
+.notif-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 14px;
+}
+
+.notif-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid var(--border);
+  color: var(--text);
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.notif-item:hover {
+  background: var(--panel-2);
+}
+
+.notif-item.unread {
+  background: var(--panel-2);
+  border-left: 4px solid var(--accent);
+}
+
+.notif-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notif-head b {
+  color: var(--accent);
+}
+
+.notif-item.unread .notif-head b::before {
+  content: '● ';
+  color: var(--dislike);
+}
+
+.notif-time {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.notif-excerpt {
+  color: var(--muted);
+  word-break: break-word;
+}
+
+/* подсветка сообщения при переходе из уведомления */
+.thread-root.flash > .message,
+.thread-node.flash > .message {
+  animation: msg-flash 2s ease-out;
+}
+
+@keyframes msg-flash {
+  0%,
+  50% {
+    border-color: var(--accent);
+    background: var(--panel-2);
+  }
+  100% {
+    border-color: var(--border);
+  }
+}
+
 .conn {
   font-size: 18px;
 }
@@ -264,6 +374,21 @@ body {
   margin-left: 0;
   padding-left: 0;
   border-left: none;
+}
+
+/* кнопка разворачивания свёрнутой ветки */
+.thread-expand {
+  align-self: flex-start;
+  color: var(--muted);
+  box-shadow: none;
+  border-color: transparent;
+  background: none;
+}
+
+.thread-expand:hover {
+  color: var(--accent);
+  border-color: transparent;
+  background: none;
 }
 
 .message.own {

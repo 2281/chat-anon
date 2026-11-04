@@ -35,6 +35,17 @@ export interface MessagePage {
   next_cursor: number | null
 }
 
+export interface AppNotification {
+  id: number
+  message_id: number
+  /** reply — ответ в ветке; like/dislike — оценка сообщения */
+  kind: 'reply' | 'like' | 'dislike'
+  actor_nickname: string
+  excerpt: string
+  is_read: boolean
+  created_at: string
+}
+
 const TOKEN_KEY = 'chat-anon-token'
 
 export function getToken(): string | null {
@@ -144,6 +155,9 @@ export const api = {
     request<ChatMessage>(`/api/messages/${messageId}/reactions/me`, { method: 'DELETE' }),
   presign: (meta: { file_name: string; mime_type: string; size: number }) =>
     request<PresignResponse>('/api/uploads/presign', { method: 'POST', body: JSON.stringify(meta) }),
+  listNotifications: () => request<AppNotification[]>('/api/notifications'),
+  markNotificationRead: (id: number) =>
+    request<void>(`/api/notifications/${id}/read`, { method: 'POST' }),
 }
 
 /** Прямая загрузка файла по presigned URL (в MinIO через прокси Vite). Возвращает attachment_id. */

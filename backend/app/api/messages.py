@@ -5,6 +5,7 @@ from app.api.deps import get_current_participant, get_current_participant_option
 from app.models import Participant
 from app.schemas.messages import MessageCreate, MessageOut, MessagePage, MessageUpdate, ReactionSet
 from app.services import messages as message_service
+from app.services import notifications as notification_service
 from app.storage.s3 import delete_object
 from app.ws.manager import manager
 
@@ -27,6 +28,13 @@ async def create_message(
     message = await message_service.create_message(db, participant, data)
     payload = MessageOut.model_validate(message)
     await manager.broadcast("message.new", payload.model_dump(mode="json"))
+    # уведомления автору родителя и участникам ветки; recipient_token в payload —
+    # клиент показывает только свои (WS-канал общий, без аутентификации)
+    notifications = await notification_service.create_reply_notifications(db, message)
+    for notification in notifications:
+        data_out = notification_service.to_out(notification).model_dump(mode="json")
+        data_out["recipient_token"] = str(notification.participant_token)
+        await manager.broadcast("notification.new", data_out)
     return payload
 
 
@@ -86,10 +94,22 @@ async def set_reaction(
     db: AsyncSession = Depends(get_db),
     participant: Participant = Depends(get_current_participant),
 ) -> MessageOut:
+    prev_kind = await message_service.get_reaction_kind(db, participant, message_id)
     message = await message_service.set_reaction(db, participant, message_id, data.kind)
     setattr(message, "my_reaction", data.kind)
     payload = MessageOut.model_validate(message)
     await _broadcast_reaction_update(payload)
+    if prev_kind != data.kind:
+        # смена реакции: старое уведомление снимаем, новое создаём автору сообщения
+        if prev_kind is not None:
+            await notification_service.remove_reaction_notification(db, participant, message, prev_kind)
+        notification = await notification_service.create_reaction_notification(
+            db, participant, message, data.kind
+        )
+        if notification is not None:
+            data_out = notification_service.to_out(notification).model_dump(mode="json")
+            data_out["recipient_token"] = str(notification.participant_token)
+            await manager.broadcast("notification.new", data_out)
     return payload
 
 
@@ -99,7 +119,10 @@ async def remove_reaction(
     db: AsyncSession = Depends(get_db),
     participant: Participant = Depends(get_current_participant),
 ) -> MessageOut:
+    prev_kind = await message_service.get_reaction_kind(db, participant, message_id)
     message = await message_service.remove_reaction(db, participant, message_id)
+    if prev_kind is not None:
+        await notification_service.remove_reaction_notification(db, participant, message, prev_kind)
     payload = MessageOut.model_validate(message)
     await _broadcast_reaction_update(payload)
     return payload

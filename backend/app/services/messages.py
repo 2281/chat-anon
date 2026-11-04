@@ -136,6 +136,18 @@ async def attach_my_reactions(
         message.my_reaction = kind_by_id.get(message.id)
 
 
+async def get_reaction_kind(
+    db: AsyncSession, participant: Participant, message_id: int
+) -> str | None:
+    """Текущая реакция участника на сообщение (для логики уведомлений об оценках)."""
+    return await db.scalar(
+        select(Reaction.kind).where(
+            Reaction.message_id == message_id,
+            Reaction.participant_token == participant.token,
+        )
+    )
+
+
 async def set_reaction(
     db: AsyncSession, participant: Participant, message_id: int, kind: str
 ) -> Message:

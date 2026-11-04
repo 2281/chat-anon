@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '../api'
 import { DraftsView, useUploads } from '../uploads'
 
@@ -19,6 +19,15 @@ export function Composer({ replyTo, quote, onCancelReply, onCancelQuote, onSend 
   const uploads = useUploads()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // по умолчанию фокус всегда в поле ввода: при входе в чат
+  // и при выборе «ответить»/цитирования — можно сразу печатать
+  useEffect(() => {
+    textareaRef.current?.focus()
+  }, [])
+  useEffect(() => {
+    if (replyTo || quote) textareaRef.current?.focus()
+  }, [replyTo, quote])
 
   const canSend =
     (text.trim().length > 0 || uploads.readyIds.length > 0) && !uploads.uploading

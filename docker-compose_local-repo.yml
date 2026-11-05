@@ -1,9 +1,10 @@
-# Переопределения для сборки в корпоративной сети с локальными репозиториями (Nexus).
-# Накладывается поверх основного файла:
+# Вариант сборки в корпоративной сети с локальными репозиториями (Nexus).
+# Базовые сервисы (postgres, minio, порты, volume'и) подключаются через include,
+# поэтому файл самодостаточен и работают оба варианта запуска (результат одинаковый):
+#   docker compose -f docker-compose_local-repo.yml up -d --build
 #   docker compose -f docker-compose.yml -f docker-compose_local-repo.yml up -d --build
 # Миграции там же, внутри docker-сети:
-#   docker compose -f docker-compose.yml -f docker-compose_local-repo.yml \
-#     run --rm backend alembic upgrade head
+#   docker compose -f docker-compose_local-repo.yml run --rm backend alembic upgrade head
 #
 # Особенности того окружения (по заметкам из AGENTS.md старой машины):
 # - прямой доступ к pypi.org / registry.npmjs.org ломается корпоративной
@@ -13,6 +14,11 @@
 # - на хосте порт 5432 занят системным PostgreSQL — контейнер на 5433 (как в основном файле);
 # - сеть до Docker Hub нестабильна — большие pull-ы обрываются, повторять build;
 #   postgres:17 и bitnamilegacy/minio при необходимости тянуть через registry-mirror.
+#
+# Требуется Docker Compose >= 2.20 (директива include).
+include:
+  - docker-compose.yml
+
 services:
   backend:
     build:

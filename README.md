@@ -81,8 +81,10 @@ docker compose run --rm backend alembic upgrade head   # миграции БД
 Если pypi.org и registry.npmjs.org недоступны (TLS-инспекция), есть вариант сборки через локальные репозитории:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose_local-repo.yml up -d --build
+docker compose -f docker-compose_local-repo.yml up -d --build
 ```
+
+Файл самодостаточен (подключает основной через `include`), двухфайловая форма `docker compose -f docker-compose.yml -f docker-compose_local-repo.yml up -d --build` даёт тот же результат. Требуется Docker Compose >= 2.20.
 
 ### Разработка
 

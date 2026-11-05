@@ -52,7 +52,7 @@ chat-anon/
 ├── AGENTS.md           # этот файл
 ├── requirements.txt    # зависимости Python
 ├── docker-compose.yml  # postgres, minio, backend, frontend
-├── docker-compose_local-repo.yml  # override: сборка через Nexus (корп. сеть)
+├── docker-compose_local-repo.yml  # вариант для корп. сети: сборка через Nexus (самодостаточен, include основного)
 ├── .env.example
 ├── .gitignore
 ├── .dockerignore
@@ -96,8 +96,10 @@ chat-anon/
    Точка входа: **http://localhost:5173**; с телефона по Wi-Fi — **http://<IP-компа>:5173**
    (Vite слушает 0.0.0.0, все ссылки относительные; проверить, что файрвол пропускает порт 5173).
    Вариант для корпоративной сети с Nexus (pip/npm из локальных репозиториев):
-   `docker compose -f docker-compose.yml -f docker-compose_local-repo.yml up -d --build`
-   (override переключает сборку на `Dockerfile_local-repo`; официальный вариант — основной).
+   `docker compose -f docker-compose_local-repo.yml up -d --build`
+   (файл самодостаточен — подключает основной через `include`; сборка переключается на
+   `Dockerfile_local-repo`; двухфайловая форма `-f docker-compose.yml -f docker-compose_local-repo.yml`
+   даёт тот же результат; нужен Docker Compose >= 2.20; официальный вариант — основной).
 2. Миграции: `docker compose run --rm backend alembic upgrade head`;
    новая: `docker compose run --rm backend alembic revision --autogenerate -m "<описание>"`.
    Важно: правка моделей без применённой миграции роняет API (код ждёт колонку, которой нет в БД) — после изменения моделей миграцию создавать и применять сразу.

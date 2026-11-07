@@ -64,3 +64,14 @@ class MessagePage(BaseModel):
     # id самого старого сообщения страницы — курсор для подгрузки более ранней истории;
     # None — история закончилась
     next_cursor: int | None
+
+
+class SearchHit(BaseModel):
+    """Найденное сообщение: conversation_id None — общий чат, иначе id личного диалога."""
+
+    conversation_id: int | None
+    message: MessageOut
+
+
+class SearchResults(BaseModel):
+    items: list[SearchHit]

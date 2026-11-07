@@ -1,11 +1,12 @@
+import re
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.models import Attachment, Message, Participant, Reaction
+from app.models import Attachment, ConversationMember, Message, Participant, Reaction
 from app.schemas.messages import MessageCreate, MessageUpdate
 
 # жадная загрузка всего, что нужно для сериализации MessageOut
@@ -118,6 +119,92 @@ async def list_messages(
             reply.replies = []
         root.replies = root_replies
     return roots, next_cursor
+
+
+# поиск: SQL отбирает кандидатов с запасом (FTS + свободный порог pg_trgm),
+# финальный фильтр — свой триграммный в Python: pg_trgm дополняет слова
+# пробелами, из-за чего короткие слова ловят шум («борщ» ~ «болтать»).
+_TRGM_PREFILTER = 0.15  # ниже реального порога — лишь ограничить выборку
+# доля общих контентных триграмм от короткого слова пары:
+# «готовлю»↔«приготовленное» = 4/5 = 0.8; шум «борщ»↔«борису» = 1/2 = 0.5
+_SEARCH_COVERAGE = 0.6
+
+_WORD_RE = re.compile(r"[а-яёa-z0-9]+")
+
+
+def _trigrams(word: str) -> set[str]:
+    return {word[i : i + 3] for i in range(len(word) - 2)}
+
+
+def _word_matches(query_word: str, text_word: str) -> bool:
+    qt, tt = _trigrams(query_word), _trigrams(text_word)
+    if not qt or not tt:
+        return query_word in text_word  # слова короче 3 букв — подстрокой
+    shared = len(qt & tt)
+    return shared > 0 and shared / min(len(qt), len(tt)) >= _SEARCH_COVERAGE
+
+
+async def search_messages(
+    db: AsyncSession, participant: Participant, query: str, limit: int
+) -> list[Message]:
+    """Поиск по текстам общего чата и личных диалогов участника.
+
+    FTS (russian) покрывает словоформы одного корня; триграммное сходство
+    добирает приставочные варианты, где стемы различаются
+    («приготовленное» находит и «готовлю»). Сначала FTS-совпадения, затем
+    триграммные, новые первыми.
+    """
+    q = query.strip()
+    if not q:
+        return []
+    tsvector = func.to_tsvector("russian", Message.text)
+    tsquery = func.plainto_tsquery("russian", q)
+    fts = tsvector.op("@@")(tsquery)
+    my_conversations = select(ConversationMember.conversation_id).where(
+        ConversationMember.participant_token == participant.token
+    )
+    query_words = [w for w in dict.fromkeys(_WORD_RE.findall(q.lower())) if len(w) >= 3]
+    conditions = [fts]
+    for word in query_words:
+        conditions.append(
+            func.word_similarity(word, func.lower(Message.text)) > _TRGM_PREFILTER
+        )
+    stmt = (
+        select(Message, fts.label("fts"))
+        .options(*_MESSAGE_LOAD)
+        .where(Message.text != "")
+        .where(
+            or_(
+                Message.conversation_id.is_(None),
+                Message.conversation_id.in_(my_conversations),
+            )
+        )
+        .where(or_(*conditions))
+        .order_by(Message.id.desc())
+        .limit(limit * 5)  # кандидаты с запасом — финальная фильтрация в коде
+    )
+    hits: list[tuple[Message, bool, float]] = []
+    for message, fts_matched in (await db.execute(stmt)).all():
+        if fts_matched:
+            hits.append((message, True, 1.0))
+            continue
+        text_words = _WORD_RE.findall(message.text.lower())
+        coverage = max(
+            (
+                len(_trigrams(qw) & _trigrams(tw)) / min(len(_trigrams(qw)), len(_trigrams(tw)))
+                for qw in query_words
+                for tw in text_words
+                if _trigrams(qw) and _trigrams(tw) and _word_matches(qw, tw)
+            ),
+            default=0.0,
+        )
+        if coverage > 0:
+            hits.append((message, False, coverage))
+    hits.sort(key=lambda row: (not row[1], -row[2], -row[0].id))
+    messages = [m for m, _, _ in hits[:limit]]
+    for m in messages:  # replies не заполняются — сериализация без веток
+        m.replies = []
+    return messages
 
 
 async def attach_my_reactions(

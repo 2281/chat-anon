@@ -19,6 +19,7 @@
 - Уведомления — **готово**: об ответах (автору сообщения и всем участникам ветки) и об оценках (лайк/дизлайк — автору сообщения, «<ник> оценил сообщение 👍/👎»; снятие/смена реакции убирает уведомление, дублей нет). Колокольчик в шапке (слева от никнейма) с числом непрочитанных, выпадающий список (новые сверху), клик по уведомлению — переход к сообщению в ленте с раскрытием всего треда (догрузка истории, подсветка) + пометка прочитанным.
 - Удаление и редактирование своих сообщений (текст и вложения) — **готово**; метка «изм.» (`messages.edited_at`), WS-события `message.updated`/`message.deleted`.
 - Личные сообщения (1-на-1) — **готово**: кнопка «✉ в лс» у чужого сообщения создаёт/открывает диалог; отдельный экран со списком диалогов и плоской лентой (без тредов и цитат; реакции, редактирование, удаление, вложения работают); непрочитанные — `conversation_members.last_read_message_id`, бейдж на кнопке «✉» в шапке и у диалогов в списке; пометка прочитанным — при открытии диалога и при получении сообщения в открытый диалог. Приватность: личка не попадает в общую ленту, WS-события диалога (`dm.new`/`dm.updated`/`dm.deleted`/`dm.reaction`) уходят только его участникам (WS-подключение с токеном), вложения диалогов требуют `?token=` участника.
+- Поиск по сообщениям — **готово**: строка поиска в шапке; ищет по общему чату и своим личным диалогам с учётом русской морфологии («приготовленное» находит «приготовление», «приготовливаю», «готовлю»); клик по результату — переход к сообщению (в ленте — догрузка истории, раскрытие треда, подсветка; в личке — открытие диалога с подсветкой).
 - Антиспам — не выбран, отложено.
 - Пиксель-арт интерфейс — **готово** (React + CSS, шрифты Press Start 2P / VT323).
 - Автохэштеги — отложено. «Читать ветку» — отложено (задел: `messages.reply_to_id`).
@@ -31,7 +32,7 @@
   - presigned URL подписываются на внутреннем endpoint (`minio:9000`), а в выдачу отдаются **относительными** (`/chatanon/<key>?X-Amz-...`, режим включается любым непустым `S3_PROXY_BASE_URL`) — браузер резолвит их от origin открытой страницы, Vite проксирует `/chatanon/*` на MinIO (`changeOrigin` ставит Host minio:9000, подпись s3v4 валидна). Медиа работают с любого устройства, открывшего страницу (localhost, телефон по Wi-Fi), CORS отсутствует. Важно: ходить нужно через origin фронтенда (5173) — при прямом запросе к бэкенду (8000) относительный редирект `/chatanon/*` упрётся в сам бэкенд и даст 404;
   - `GET /api/attachments/{id}/file` — 307 на presigned GET (12 ч); `?download=true` — Content-Disposition: attachment (filename* для не-ASCII имён); вложение сообщения из личного диалога требует `?token=` участника диалога (у `<img>` нет заголовков; чужому — 404, без токена — 401);
   - валидация: MIME image|audio|video, расширение из белого списка, размер ≤ 100 МБ (иначе 415/422).
-- **БД:** PostgreSQL 17. Таблицы: `participants` (есть `email`, unique), `messages` (есть `edited_at`, `conversation_id` nullable — NULL = общий чат), `attachments` (message_id nullable), `reactions`, `notifications` (participant_token + message_id, `kind` reply|like|dislike, `actor_token`, is_read), `conversations` + `conversation_members` (participant_token, `last_read_message_id` — для непрочитанных в личке). Счётчики лайков — column_property.
+- **БД:** PostgreSQL 17 (+ расширение `pg_trgm` для поиска). Таблицы: `participants` (есть `email`, unique), `messages` (есть `edited_at`, `conversation_id` nullable — NULL = общий чат), `attachments` (message_id nullable), `reactions`, `notifications` (participant_token + message_id, `kind` reply|like|dislike, `actor_token`, is_read), `conversations` + `conversation_members` (participant_token, `last_read_message_id` — для непрочитанных в личке). Счётчики лайков — column_property.
 - **API ядра:**
   - `POST /api/participants` — тело `{email, nickname?}`: email уже есть → 200 и существующая запись (непустой никнейм обновляется), нет → 201 и новая (ник или `анон-<число>`); `GET/PATCH /api/participants/me`, заголовок `X-Participant-Token`;
   - `POST /api/messages` (текст ≤4000, reply/quote, `attachment_ids`), `GET /api/messages?before_id=&limit=` — страница **корневых** сообщений общего чата (`conversation_id IS NULL`, личка исключена; пагинация только по корням, `next_cursor`); у каждого корня поле `replies` — все потомки ветки плоским списком по id ASC (опциональный токен → `my_reaction` и у корней, и у ответов); фронт строит дерево по `reply_to_id`;
@@ -40,6 +41,7 @@
   - `POST /api/messages/{id}/reactions`, `DELETE /api/messages/{id}/reactions/me` — постановка оценки создаёт уведомление автору сообщения (kind=like|dislike, без дублей), снятие/смена оценки его удаляет;
   - `GET /api/notifications` (все, новые первыми), `POST /api/notifications/{id}/read` (пометка по клику); создаются при ответе для всех авторов ветки, кроме автора ответа, и при оценке — для автора сообщения (`services/notifications.py`);
   - личка: `POST /api/conversations` (найти/создать диалог с participant_token; себе — 400), `GET /api/conversations` (собеседник, последнее сообщение, unread_count; свежие сверху), `GET/POST /api/conversations/{id}/messages` (пагинация как в общей ленте; текст ≤4000, attachment_ids), `POST /api/conversations/{id}/read`; все эндпоинты — только участникам диалога (чужому 404). Уведомления в `notifications` по личке не создаются — только счётчик непрочитанных;
+  - поиск: `GET /api/search/messages?q=&limit=` — по общему чату и своим диалогам (чужая личка исключена). Два слоя: FTS `to_tsvector('russian')` (словоформы одного корня) + триграммы pg_trgm (приставочные варианты: «готовлю» ↔ «приготовленное»). SQL отбирает кандидатов (FTS + свободный порог word_similarity 0.15), финальный фильтр в коде — доля общих контентных триграмм ≥ 0.6 от короткого слова пары (у pg_trgm пробельное дополнение слов даёт шум на коротких словах: «борщ» ~ «болтать»). Расширение pg_trgm + GIN-индекс по lower(text) — миграция `d41f7c2a9e05`;
   - WS `/ws/chat` (query-параметр `token` связывает сокет с участником; невалидный токен — анонимное подключение): broadcast-события `message.new`, `message.updated`, `message.deleted`, `message.reaction`, `notification.new` (в payload есть `recipient_token` — канал общий, клиент фильтрует свои); таргетированные участникам диалога — `dm.new`, `dm.updated`, `dm.deleted`, `dm.reaction` (в payload есть `conversation_id`; для сообщений с conversation_id общий broadcast НЕ делается); менеджер подключений в памяти; клиент шлёт пульс `{event:"ping"}` раз в 10 с.
 - **Фронтенд:** React 18 + TS + Vite (dev-сервер в compose, прокси `/api`, `/ws`, `/chatanon` → backend/minio). Состояние — hooks. Экраны: общая лента / список диалогов / диалог (стейт `dmView` в App.tsx; личка — `components/DirectMessages.tsx`: `DmList` + `DmChat`, переиспользуют `MessageItem` без reply/quote и `Composer`; WS-события диалога App маршрутизирует в открытый `DmChat` через `registerHandler`). Общая логика черновиков вложений — `src/uploads.tsx` (`useUploads`, `DraftsView`), используется композером и редактором сообщения. Стили — чистый CSS, пиксель-арт (фото/видео — `image-rendering: auto`).
 - **Архитектура:** монолит; миграции/бэкенд/фронтенд внутри docker-сети.
@@ -67,7 +69,7 @@ chat-anon/
 │       ├── db.py
 │       ├── models/     # participant, message, attachment, reaction, conversation (+member)
 │       ├── schemas/    # pydantic-схемы (messages, conversations, notifications, participants)
-│       ├── api/        # participants, messages, conversations, notifications, uploads, ws; deps.py
+│       ├── api/        # participants, messages, conversations, notifications, search, uploads, ws; deps.py
 │       ├── services/   # бизнес-логика сообщений/реакций/уведомлений/диалогов
 │       ├── storage/    # s3.py: presign upload/download, ensure_bucket, delete_object
 │       └── ws/         # менеджер WebSocket-подключений
@@ -83,7 +85,7 @@ chat-anon/
         ├── uploads.tsx # useUploads (черновики вложений с загрузкой), DraftsView
         ├── ws.ts       # WS с ?token= для таргетированных событий лички
         ├── styles.css
-        └── components/ # StartScreen, ChatHeader (колокольчик + ✉), MessageItem (вложения+модалка+редактор+«✉ в лс»), Composer, DirectMessages (DmList, DmChat)
+        └── components/ # StartScreen, ChatHeader (поиск + колокольчик + ✉), MessageItem (вложения+модалка+редактор+«✉ в лс»), Composer, DirectMessages (DmList, DmChat)
 ```
 
 Тестовые медиа-файлы лежат в `test-media-files/` (jpeg, mp3, mp4 с кириллическими именами) — удобны для ручных проверок.

@@ -841,3 +841,37 @@ body {
   top: 6px;
   right: 8px;
 }
+
+/* ---------- поиск ---------- */
+
+.search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 180px;
+  max-width: 420px;
+}
+
+.search-input {
+  flex: 1;
+}
+
+.search-panel {
+  left: 0;
+  right: auto;
+  width: 380px;
+}
+
+@media (max-width: 700px) {
+  .search-wrap {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .search-panel {
+    width: 100%;
+  }
+}

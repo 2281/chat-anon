@@ -43,6 +43,12 @@ export interface ConversationSummary {
   unread_count: number
 }
 
+export interface SearchHit {
+  /** null — сообщение общего чата, иначе id личного диалога */
+  conversation_id: number | null
+  message: ChatMessage
+}
+
 export interface AppNotification {
   id: number
   message_id: number
@@ -186,6 +192,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ last_read_message_id: lastReadMessageId }),
     }),
+  searchMessages: (q: string) =>
+    request<{ items: SearchHit[] }>(`/api/search/messages?q=${encodeURIComponent(q)}`),
 }
 
 /** Прямая загрузка файла по presigned URL (в MinIO через прокси Vite). Возвращает attachment_id. */

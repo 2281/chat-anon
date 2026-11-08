@@ -52,12 +52,17 @@ export function DmList({
 export function DmChat({
   me,
   conversation,
+  jumpToId,
+  onJumpHandled,
   onBack,
   onRead,
   registerHandler,
 }: {
   me: Participant
   conversation: ConversationSummary
+  /** переход из поиска: догрузить историю до сообщения и подсветить его */
+  jumpToId?: number | null
+  onJumpHandled?: () => void
   onBack: () => void
   /** диалог прочитан — обнулить его бейдж в шапке */
   onRead: (conversationId: number) => void
@@ -108,19 +113,40 @@ export function DmChat({
     [onRead],
   )
 
-  // начальная загрузка истории диалога
+  // начальная загрузка истории диалога; при переходе из поиска (jumpToId)
+  // догружаем страницы, пока целевое сообщение не окажется в списке
   useEffect(() => {
     ;(async () => {
       try {
         const page = await api.listDmMessages(conversation.id)
-        setMessages([...page.items].reverse()) // API отдаёт от новых — разворачиваем
-        setNextCursor(page.next_cursor)
-        if (page.items.length > 0) markRead(page.items[0].id)
-        requestAnimationFrame(() => scrollToBottom())
+        let items = [...page.items].reverse() // API отдаёт от новых — разворачиваем
+        let cursor = page.next_cursor
+        while (jumpToId != null && !items.some((m) => m.id === jumpToId) && cursor != null) {
+          const older = await api.listDmMessages(conversation.id, cursor, PAGE_SIZE)
+          items = [...[...older.items].reverse(), ...items]
+          cursor = older.next_cursor
+        }
+        setMessages(items)
+        setNextCursor(cursor)
+        if (items.length > 0) markRead(items[items.length - 1].id)
+        requestAnimationFrame(() => {
+          const target = jumpToId != null ? document.getElementById(`msg-${jumpToId}`) : null
+          if (target) {
+            target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+            target.classList.add('flash')
+            window.setTimeout(() => target.classList.remove('flash'), 2000)
+          } else {
+            scrollToBottom()
+          }
+          onJumpHandled?.()
+        })
       } catch (e) {
         setError(String(e))
       }
     })()
+    // jumpToId намеренно не в зависимостях: переход обрабатывается при открытии диалога
+    // (App перемонтирует компонент ключом при новом переходе из поиска)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation.id, markRead])
 
   // подписка на события своего диалога, пока он открыт

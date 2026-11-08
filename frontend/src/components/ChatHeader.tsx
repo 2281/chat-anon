@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AppNotification, Participant } from '../api'
+import type { AppNotification, Participant, SearchHit } from '../api'
 import { api } from '../api'
 
 interface Props {
@@ -10,16 +10,21 @@ interface Props {
   dmUnread: number
   onOpenNotification: (n: AppNotification) => void
   onOpenDmList: () => void
+  onOpenSearchHit: (hit: SearchHit) => void
   onLogout: () => void
 }
 
-export function ChatHeader({ me, connected, notifications, unreadCount, dmUnread, onOpenNotification, onOpenDmList, onLogout }: Props) {
+export function ChatHeader({ me, connected, notifications, unreadCount, dmUnread, onOpenNotification, onOpenDmList, onOpenSearchHit, onLogout }: Props) {
   const [editing, setEditing] = useState(false)
   const [nickname, setNickname] = useState(me.nickname)
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
+  const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<SearchHit[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
 
-  // закрытие выпадающего списка уведомлений по клику вне его
+  // закрытие выпадающих панелей по клику вне их
   useEffect(() => {
     if (!notifOpen) return
     const close = (e: MouseEvent) => {
@@ -28,6 +33,29 @@ export function ChatHeader({ me, connected, notifications, unreadCount, dmUnread
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [notifOpen])
+
+  useEffect(() => {
+    if (hits === null) return
+    const close = (e: MouseEvent) => {
+      if (!searchRef.current?.contains(e.target as Node)) setHits(null)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [hits])
+
+  const runSearch = async () => {
+    const q = query.trim()
+    if (!q || searching) return
+    setSearching(true)
+    try {
+      const results = await api.searchMessages(q)
+      setHits(results.items)
+    } catch {
+      setHits([])
+    } finally {
+      setSearching(false)
+    }
+  }
 
   const save = async () => {
     const trimmed = nickname.trim()
@@ -40,6 +68,51 @@ export function ChatHeader({ me, connected, notifications, unreadCount, dmUnread
   return (
     <header className="chat-header">
       <h1 className="logo">chat-anon</h1>
+      <div className="search-wrap" ref={searchRef}>
+        <input
+          className="pixel-input small search-input"
+          value={query}
+          placeholder="поиск по чату..."
+          maxLength={200}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+        />
+        <button className="px-btn" title="искать" onClick={runSearch} disabled={searching}>
+          {searching ? '...' : '🔍'}
+        </button>
+        {hits !== null && (
+          <div className="notif-panel search-panel">
+            {hits.length === 0 && <div className="notif-empty">ничего не найдено</div>}
+            {hits.map((h) => (
+              <button
+                key={`${h.conversation_id ?? 'feed'}-${h.message.id}`}
+                className="notif-item"
+                onClick={() => {
+                  setHits(null)
+                  onOpenSearchHit(h)
+                }}
+              >
+                <span className="notif-head">
+                  <b>
+                    {h.conversation_id != null ? '✉ личка' : '# общий'} · {h.message.author_nickname}
+                  </b>
+                  <span className="notif-time">
+                    {new Date(h.message.created_at).toLocaleString([], {
+                      day: '2-digit',
+                      month: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </span>
+                <span className="notif-excerpt">
+                  {h.message.text || '📎 вложение'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="header-right">
         <span
           className={connected ? 'conn ok' : 'conn bad'}

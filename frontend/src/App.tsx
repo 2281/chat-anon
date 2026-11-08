@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import type { AppNotification, ChatMessage, ConversationSummary, Participant, ReactionKind } from './api'
+import type { AppNotification, ChatMessage, ConversationSummary, Participant, ReactionKind, SearchHit } from './api'
 import { api, clearToken, getToken, setToken } from './api'
 import { connectChatWs } from './ws'
 import { ChatHeader } from './components/ChatHeader'
@@ -330,15 +330,42 @@ export default function App() {
   }
 
   // клик по уведомлению: пометить прочитанным и перейти к сообщению в ленте
-  // (если оно в незагруженной истории — догружаем страницы, пока не найдём)
   const handleOpenNotification = async (n: AppNotification) => {
     setDmView(null) // переход к сообщению возможен только из общей ленты
     setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)))
     api.markNotificationRead(n.id).catch(() => {})
+    await jumpToFeedMessage(n.message_id)
+  }
 
+  // переход к сообщению из поиска: в общий чат или в личный диалог
+  const [dmJumpId, setDmJumpId] = useState<number | null>(null)
+  const handleOpenSearchHit = async (hit: SearchHit) => {
+    if (hit.conversation_id == null) {
+      setDmView(null)
+      await jumpToFeedMessage(hit.message.id)
+      return
+    }
+    let convo = conversations.find((c) => c.id === hit.conversation_id)
+    if (!convo) {
+      try {
+        const list = await api.listConversations()
+        setConversations(list)
+        convo = list.find((c) => c.id === hit.conversation_id)
+      } catch {
+        return
+      }
+    }
+    if (!convo) return
+    setDmJumpId(hit.message.id)
+    setDmView({ kind: 'chat', conversation: convo })
+  }
+
+  // догрузка истории, пока целевое сообщение не окажется в ленте,
+  // затем раскрытие цепочки родителей, центрирование и подсветка
+  const jumpToFeedMessage = async (messageId: number) => {
     let cursor = nextCursorRef.current
     const loaded: ChatMessage[] = []
-    while (!knownIds.current.has(n.message_id) && cursor != null) {
+    while (!knownIds.current.has(messageId) && cursor != null) {
       const page = await api.listMessages(cursor, PAGE_SIZE)
       const flat = flattenPage(page.items)
       flat.forEach((m) => knownIds.current.add(m.id))
@@ -352,11 +379,10 @@ export default function App() {
       setNextCursor(cursor)
     }
 
-    // разворачиваем всю цепочку родителей, чтобы целевое сообщение было видно
     const byId = new Map(messagesRef.current.map((m) => [m.id, m] as const))
     loaded.forEach((m) => byId.set(m.id, m))
     const toExpand: number[] = []
-    let cur = byId.get(n.message_id)
+    let cur = byId.get(messageId)
     while (cur?.reply_to_id != null) {
       toExpand.push(cur.reply_to_id)
       cur = byId.get(cur.reply_to_id)
@@ -368,7 +394,7 @@ export default function App() {
     // два кадра — дождаться рендера догруженных сообщений
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        const el = document.getElementById(`msg-${n.message_id}`)
+        const el = document.getElementById(`msg-${messageId}`)
         if (!el) return
         el.scrollIntoView({ block: 'center', behavior: 'smooth' })
         el.classList.add('flash')
@@ -509,6 +535,7 @@ export default function App() {
         dmUnread={dmUnread}
         onOpenNotification={handleOpenNotification}
         onOpenDmList={() => setDmView({ kind: 'list' })}
+        onOpenSearchHit={handleOpenSearchHit}
         onLogout={handleLogout}
       />
       {dmView === null && (
@@ -542,8 +569,11 @@ export default function App() {
       )}
       {dmView?.kind === 'chat' && (
         <DmChat
+          key={`${dmView.conversation.id}:${dmJumpId ?? ''}`}
           me={me}
           conversation={dmView.conversation}
+          jumpToId={dmJumpId}
+          onJumpHandled={() => setDmJumpId(null)}
           onBack={() => setDmView({ kind: 'list' })}
           onRead={handleDmRead}
           registerHandler={registerDmHandler}
